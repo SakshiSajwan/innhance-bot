@@ -31,6 +31,12 @@ function getBotReply(userMessage) {
     return "Yay! 🎉 We'd love to have you stay with us! Here are our room options:\n\n🛏️ *Standard Room* - ₹2,500/night\nPerfect for solo travelers or couples!\n\n🛏️✨ *Deluxe Room* - ₹4,000/night\nSpacious with a beautiful view!\n\n👑 *Suite* - ₹7,500/night\nThe ultimate luxury experience!\n\nAll rooms include FREE breakfast 🍳 and WiFi 📶\n\nWhich room catches your eye? 😊";
   }
 
+  // SPECIFIC ROOM SELECTION
+  if (/(standard room|deluxe room|suite|standard|deluxe)/.test(msg)) {
+  const room = msg.includes('suite') ? 'Suite 👑 (₹7,500/night)' : msg.includes('deluxe') ? 'Deluxe Room ✨ (₹4,000/night)' : 'Standard Room 🛏️ (₹2,500/night)';
+  return `Great choice! 🎉 You've selected the *${room}*!\n\nTo complete your booking, please share:\n\n📛 *Your Name*\n📅 *Check-in Date*\n📅 *Check-out Date*\n👥 *Number of Guests*\n\nOur team will confirm your booking within minutes! 😊`;
+  }
+
   // ROOM AVAILABILITY
   if (/(room|available|availability|what rooms|which rooms|types of room|room types)/.test(msg)) {
     return "Great question! 🏨 Here's what we have available right now:\n\n🛏️ *Standard Room* - ₹2,500/night\n🛏️✨ *Deluxe Room* - ₹4,000/night\n👑 *Suite* - ₹7,500/night\n\nAll rooms come with:\n✅ Free breakfast\n✅ Free WiFi\n✅ 24/7 room service\n\nWant to book one? Just say the word! 😊";
@@ -39,12 +45,6 @@ function getBotReply(userMessage) {
   // PRICE / COST
   if (/(price|cost|rate|charge|fee|how much|tariff|expensive|cheap|affordable|budget)/.test(msg)) {
     return "Here's our pricing breakdown 💰:\n\n🛏️ *Standard Room* - ₹2,500/night\n🛏️✨ *Deluxe Room* - ₹4,000/night\n👑 *Suite* - ₹7,500/night\n\nAnd the best part? *Breakfast is FREE* for all guests! 🍳🥐\n\nWe also offer special discounts for long stays! 🎁 Interested?";
-  }
-
-  // SPECIFIC ROOM SELECTION
-  if (/(standard room|deluxe room|suite|standard|deluxe)/.test(msg)) {
-  const room = msg.includes('suite') ? 'Suite 👑 (₹7,500/night)' : msg.includes('deluxe') ? 'Deluxe Room ✨ (₹4,000/night)' : 'Standard Room 🛏️ (₹2,500/night)';
-  return `Great choice! 🎉 You've selected the *${room}*!\n\nTo complete your booking, please share:\n\n📛 *Your Name*\n📅 *Check-in Date*\n📅 *Check-out Date*\n👥 *Number of Guests*\n\nOur team will confirm your booking within minutes! 😊`;
   }
 
   // CHECK IN
