@@ -5,7 +5,8 @@ const hotelSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
 
-  whatsappNumber: { type: String, required: true, unique: true },
+  whatsappNumber: { type: String },               // display number e.g. +91 98765 43210
+  whatsappPhoneNumberId: { type: String, unique: true }, // Meta phone number ID
 
   // Bot personality & knowledge
   botConfig: {

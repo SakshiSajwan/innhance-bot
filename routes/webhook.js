@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const OpenAI = require('openai');
+const axios = require('axios');
 const Hotel = require('../models/Hotel');
 const Customer = require('../models/Customer');
 const Conversation = require('../models/Conversation');
@@ -8,27 +9,53 @@ const Booking = require('../models/Booking');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// ===== VERIFY WEBHOOK (Meta requires this) =====
+router.get('/', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+    console.log('Webhook verified ✅');
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
+});
+
+// ===== RECEIVE MESSAGES =====
 router.post('/', async (req, res) => {
-  console.log('=== INCOMING MESSAGE ===');
-  console.log('FROM:', req.body.From);
-  console.log('TO:', req.body.To);
-  console.log('BODY:', req.body.Body);
-  console.log('========================');
-
-  const userMessage = req.body.Body;
-  const customerPhone = req.body.From;
-  const hotelPhone = req.body.To;
-
-  if (!userMessage) return res.status(400).json({ error: 'No message provided' });
-
   try {
-    // 1. Find hotel
-    const hotel = await Hotel.findOne({ whatsappNumber: hotelPhone });
+    const body = req.body;
+
+    if (body.object !== 'whatsapp_business_account') {
+      return res.sendStatus(404);
+    }
+
+    const entry = body.entry?.[0];
+    const changes = entry?.changes?.[0];
+    const value = changes?.value;
+    const message = value?.messages?.[0];
+
+    if (!message || message.type !== 'text') {
+      return res.sendStatus(200); // ignore non-text messages
+    }
+
+    const userMessage = message.text.body;
+    const customerPhone = message.from;          // customer's number
+    const hotelPhoneNumberId = value.metadata.phone_number_id; // hotel's number ID
+
+    console.log('=== INCOMING MESSAGE ===');
+    console.log('FROM:', customerPhone);
+    console.log('PHONE_NUMBER_ID:', hotelPhoneNumberId);
+    console.log('BODY:', userMessage);
+    console.log('========================');
+
+    // 1. Find hotel by phone number ID
+    const hotel = await Hotel.findOne({ whatsappPhoneNumberId: hotelPhoneNumberId });
     if (!hotel) {
-      console.log('No hotel found for number:', hotelPhone);
-      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>This number is not registered.</Message></Response>`;
-      res.set('Content-Type', 'text/xml');
-      return res.send(twiml);
+      console.log('No hotel found for phone number ID:', hotelPhoneNumberId);
+      return res.sendStatus(200);
     }
 
     // 2. Find or create customer
@@ -73,7 +100,7 @@ router.post('/', async (req, res) => {
 
     // 7. Check booking completion
     const collected = conversation.bookingState.collectedData || {};
-    const updatedData = extractBookingData(userMessage, botReply, collected);
+    const updatedData = extractBookingData(userMessage, collected);
     conversation.bookingState.collectedData = updatedData;
 
     if (isBookingComplete(updatedData) && !conversation.bookingState.saved) {
@@ -99,31 +126,66 @@ router.post('/', async (req, res) => {
     // 8. Check if images should be sent
     const imagesToSend = getImagesToSend(userMessage, hotel.images);
 
-    console.log(`[${hotel.name}] ${customerPhone}: ${userMessage}`);
-    console.log(`[${hotel.name}] Bot: ${botReply}`);
-
-    // 9. Build TwiML response with images + text
-    let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
-
+    // 9. Send images via Meta API
     if (imagesToSend.length > 0) {
       for (const imageUrl of imagesToSend) {
-        twiml += `<Message><Media>${imageUrl}</Media></Message>`;
+        await sendWhatsAppImage(customerPhone, imageUrl, hotelPhoneNumberId);
       }
     }
 
-    twiml += `<Message>${botReply}</Message>`;
-    twiml += `</Response>`;
+    // 10. Send text reply via Meta API
+    await sendWhatsAppMessage(customerPhone, botReply, hotelPhoneNumberId);
 
-    res.set('Content-Type', 'text/xml');
-    res.send(twiml);
+    console.log(`[${hotel.name}] Bot: ${botReply}`);
+    res.sendStatus(200);
 
   } catch (error) {
     console.error('Webhook error:', error.message);
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, having trouble right now! 😅 Please try again.</Message></Response>`;
-    res.set('Content-Type', 'text/xml');
-    res.send(twiml);
+    res.sendStatus(200); // always return 200 to Meta
   }
 });
+
+// ===== SEND TEXT MESSAGE =====
+async function sendWhatsAppMessage(to, message, phoneNumberId) {
+  await axios.post(
+    `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+    {
+      messaging_product: 'whatsapp',
+      to: to,
+      type: 'text',
+      text: { body: message }
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+}
+
+// ===== SEND IMAGE MESSAGE =====
+async function sendWhatsAppImage(to, imageUrl, phoneNumberId) {
+  try {
+    await axios.post(
+      `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: to,
+        type: 'image',
+        image: { link: imageUrl }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+  } catch (err) {
+    console.error('Image send error:', err.message);
+  }
+}
 
 function getImagesToSend(message, images) {
   if (!images) return [];
@@ -156,7 +218,7 @@ function getImagesToSend(message, images) {
   return toSend;
 }
 
-function extractBookingData(userMessage, botReply, existing = {}) {
+function extractBookingData(userMessage, existing = {}) {
   const data = { ...existing };
   const text = userMessage.toLowerCase();
 
