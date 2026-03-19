@@ -84,8 +84,8 @@ async function seed() {
       name: 'Innhance Hotels',
       email: 'admin@innhance.com',
       password: 'hashed_later',
-      whatsappNumber: '+91 98765 43210',         // hotel's real display number
-      whatsappPhoneNumberId: 'your_phone_number_id_here',
+      whatsappNumber: '+1 555 174 2481',         // hotel's real display number
+      whatsappPhoneNumberId: '1030286350168358',
       botConfig: {
         assistantName: 'Inna',
         systemPrompt: systemPrompt
