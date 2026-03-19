@@ -41,6 +41,12 @@ function getBotReply(userMessage) {
     return "Here's our pricing breakdown 💰:\n\n🛏️ *Standard Room* - ₹2,500/night\n🛏️✨ *Deluxe Room* - ₹4,000/night\n👑 *Suite* - ₹7,500/night\n\nAnd the best part? *Breakfast is FREE* for all guests! 🍳🥐\n\nWe also offer special discounts for long stays! 🎁 Interested?";
   }
 
+  // SPECIFIC ROOM SELECTION
+  if (/(standard room|deluxe room|suite|standard|deluxe)/.test(msg)) {
+  const room = msg.includes('suite') ? 'Suite 👑 (₹7,500/night)' : msg.includes('deluxe') ? 'Deluxe Room ✨ (₹4,000/night)' : 'Standard Room 🛏️ (₹2,500/night)';
+  return `Great choice! 🎉 You've selected the *${room}*!\n\nTo complete your booking, please share:\n\n📛 *Your Name*\n📅 *Check-in Date*\n📅 *Check-out Date*\n👥 *Number of Guests*\n\nOur team will confirm your booking within minutes! 😊`;
+  }
+
   // CHECK IN
   if (/(check.?in|check in|arrival|arriving|when can i check|what time check in)/.test(msg)) {
     return "Welcome soon! 🤗 Here's your check-in info:\n\n⏰ *Check-in time:* 2:00 PM\n🌅 *Early check-in* available on request (subject to availability)\n🪪 *Don't forget* to carry a valid photo ID!\n\nNeed help with anything else? 😊";
