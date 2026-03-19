@@ -1,11 +1,3 @@
-router.post('/', async (req, res) => {
-  console.log('=== INCOMING MESSAGE ===');
-  console.log('FROM:', req.body.From);
-  console.log('TO:', req.body.To);
-  console.log('BODY:', req.body.Body);
-  console.log('========================');
-  
-  // ... rest of your code
 const express = require('express');
 const router = express.Router();
 const OpenAI = require('openai');
@@ -19,6 +11,12 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 router.post('/', async (req, res) => {
+  console.log('=== INCOMING MESSAGE ===');
+  console.log('FROM:', req.body.From);
+  console.log('TO:', req.body.To);
+  console.log('BODY:', req.body.Body);
+  console.log('========================');
+
   const userMessage = req.body.Body;
   const customerPhone = req.body.From;
   const hotelPhone = req.body.To;
@@ -29,6 +27,7 @@ router.post('/', async (req, res) => {
     // 1. Find hotel
     const hotel = await Hotel.findOne({ whatsappNumber: hotelPhone });
     if (!hotel) {
+      console.log('No hotel found for number:', hotelPhone);
       return res.send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>This number is not registered.</Message></Response>`);
     }
 
@@ -100,7 +99,7 @@ router.post('/', async (req, res) => {
     // 8. Check if images should be sent
     const imagesToSend = getImagesToSend(userMessage, hotel.images);
 
-    // 9. Send images first if needed (via Twilio API directly)
+    // 9. Send images first if needed
     if (imagesToSend.length > 0) {
       for (const imageUrl of imagesToSend) {
         await twilioClient.messages.create({
@@ -111,7 +110,7 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // 10. Send text reply via TwiML
+    // 10. Send text reply
     console.log(`[${hotel.name}] ${customerPhone}: ${userMessage}`);
     console.log(`[${hotel.name}] Bot: ${botReply}`);
 
@@ -128,7 +127,6 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Detect which images to send based on message
 function getImagesToSend(message, images) {
   if (!images) return [];
   const text = message.toLowerCase();
@@ -144,7 +142,6 @@ function getImagesToSend(message, images) {
 
   if (!isRoomInquiry) return [];
 
-  // Send specific room image if mentioned
   if (text.includes('standard') && images.standardRoom) {
     toSend.push(images.standardRoom);
   } else if (text.includes('deluxe') && images.deluxeRoom) {
@@ -152,7 +149,6 @@ function getImagesToSend(message, images) {
   } else if (text.includes('suite') && images.suite) {
     toSend.push(images.suite);
   } else {
-    // Send lobby + all rooms for general inquiry
     if (images.lobby) toSend.push(images.lobby);
     if (images.standardRoom) toSend.push(images.standardRoom);
     if (images.deluxeRoom) toSend.push(images.deluxeRoom);
