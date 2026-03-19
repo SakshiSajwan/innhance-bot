@@ -2,7 +2,7 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 const Hotel = require('../models/Hotel');
 
-const systemPrompt = `You are Inna, a warm and friendly hotel booking assistant for Innhance Hotels. 
+const systemPrompt = `You are Inna, a warm and friendly hotel booking assistant for Innhance Hotels.
 You speak in a natural, human, conversational way — like a real receptionist, not a robot.
 You use emojis naturally in your responses to make them feel warm and friendly.
 Keep responses concise and clear — not too long.
@@ -59,11 +59,21 @@ CONTACT:
 BOOKING FLOW:
 When a guest wants to book a room, collect these details one by one in a conversational way:
 1. Full name
-2. Check-in date
-3. Check-out date
+2. Check-in date — ALWAYS ask for complete date in format DD/MM/YYYY.
+   If guest gives incomplete date like "25th" or just a number, ask:
+   "Could you please share the complete date with month and year? For example, 25/04/2026 😊"
+3. Check-out date — same as above, always full date DD/MM/YYYY
 4. Number of guests
 5. Room type preference
-Then summarize and confirm the booking.
+
+IMPORTANT DATE RULES:
+- Never assume the month or year
+- Always confirm the full date before moving on
+- If date is in the past, politely point it out and ask again
+- Valid format examples: 25/04/2026 or 25 April 2026
+- Always repeat back the full dates in the booking summary
+
+Then summarize and confirm the booking with all details including full dates.
 
 IMPORTANT RULES:
 - Always be warm, friendly and use emojis naturally
@@ -77,14 +87,13 @@ async function seed() {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log('MongoDB connected ✅');
 
-    // Delete existing hotel with same email to avoid duplicates
     await Hotel.deleteOne({ email: 'admin@innhance.com' });
 
     const hotel = await Hotel.create({
       name: 'Innhance Hotels',
       email: 'admin@innhance.com',
       password: 'hashed_later',
-      whatsappNumber: '+1 555 174 2481',         // hotel's real display number
+      whatsappNumber: '+1 555 174 2481',
       whatsappPhoneNumberId: '1030286350168358',
       botConfig: {
         assistantName: 'Inna',
