@@ -1,12 +1,12 @@
-const connectDB = require('./config/db');
-connectDB(); // call it right after
 require('dotenv').config();
 const express = require('express');
 const OpenAI = require('openai');
+const connectDB = require('./config/db');
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+connectDB();
 
 const PORT = process.env.PORT || 8080;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
