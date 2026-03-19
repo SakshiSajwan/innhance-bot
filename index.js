@@ -1,3 +1,5 @@
+const connectDB = require('./config/db');
+connectDB(); // call it right after
 require('dotenv').config();
 const express = require('express');
 const OpenAI = require('openai');
