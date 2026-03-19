@@ -9,7 +9,7 @@ const Booking = require('../models/Booking');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ===== VERIFY WEBHOOK (Meta requires this) =====
+// ===== VERIFY WEBHOOK =====
 router.get('/', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -38,12 +38,12 @@ router.post('/', async (req, res) => {
     const message = value?.messages?.[0];
 
     if (!message || message.type !== 'text') {
-      return res.sendStatus(200); // ignore non-text messages
+      return res.sendStatus(200);
     }
 
     const userMessage = message.text.body;
-    const customerPhone = message.from;          // customer's number
-    const hotelPhoneNumberId = value.metadata.phone_number_id; // hotel's number ID
+    const customerPhone = message.from;
+    const hotelPhoneNumberId = value.metadata.phone_number_id;
 
     console.log('=== INCOMING MESSAGE ===');
     console.log('FROM:', customerPhone);
@@ -51,7 +51,7 @@ router.post('/', async (req, res) => {
     console.log('BODY:', userMessage);
     console.log('========================');
 
-    // 1. Find hotel by phone number ID
+    // 1. Find hotel
     const hotel = await Hotel.findOne({ whatsappPhoneNumberId: hotelPhoneNumberId });
     if (!hotel) {
       console.log('No hotel found for phone number ID:', hotelPhoneNumberId);
@@ -124,16 +124,24 @@ router.post('/', async (req, res) => {
     await conversation.save();
 
     // 8. Check if images should be sent
-    const imagesToSend = getImagesToSend(userMessage, hotel.images);
+    const imagesToSend = getImagesToSend(userMessage, botReply, hotel.images);
 
-    // 9. Send images via Meta API
+    // 9. Send intro + images if needed
     if (imagesToSend.length > 0) {
+      // Send intro message before images
+      await sendWhatsAppMessage(
+        customerPhone,
+        '🏨 Here are some pictures of our beautiful rooms! Take a look 😊',
+        hotelPhoneNumberId
+      );
+
+      // Send each image
       for (const imageUrl of imagesToSend) {
         await sendWhatsAppImage(customerPhone, imageUrl, hotelPhoneNumberId);
       }
     }
 
-    // 10. Send text reply via Meta API
+    // 10. Send bot text reply
     await sendWhatsAppMessage(customerPhone, botReply, hotelPhoneNumberId);
 
     console.log(`[${hotel.name}] Bot: ${botReply}`);
@@ -141,27 +149,31 @@ router.post('/', async (req, res) => {
 
   } catch (error) {
     console.error('Webhook error:', error.message);
-    res.sendStatus(200); // always return 200 to Meta
+    res.sendStatus(200);
   }
 });
 
 // ===== SEND TEXT MESSAGE =====
 async function sendWhatsAppMessage(to, message, phoneNumberId) {
-  await axios.post(
-    `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
-    {
-      messaging_product: 'whatsapp',
-      to: to,
-      type: 'text',
-      text: { body: message }
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
-        'Content-Type': 'application/json'
+  try {
+    await axios.post(
+      `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: to,
+        type: 'text',
+        text: { body: message }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
       }
-    }
-  );
+    );
+  } catch (err) {
+    console.error('Text send error:', err.message);
+  }
 }
 
 // ===== SEND IMAGE MESSAGE =====
@@ -187,20 +199,26 @@ async function sendWhatsAppImage(to, imageUrl, phoneNumberId) {
   }
 }
 
-function getImagesToSend(message, images) {
+// ===== DETECT ROOM IMAGES TO SEND =====
+function getImagesToSend(userMessage, botReply, images) {
   if (!images) return [];
-  const text = message.toLowerCase();
+  const text = userMessage.toLowerCase();
+  const reply = botReply.toLowerCase();
+
+  // Only send images if BOTH user asked about rooms AND bot is replying about rooms
+  const isRoomContext =
+    (text.includes('room') || text.includes('suite') ||
+     text.includes('deluxe') || text.includes('standard') ||
+     text.includes('photo') || text.includes('picture') ||
+     text.includes('show') || text.includes('look') ||
+     text.includes('what do') || text.includes('how does')) &&
+    (reply.includes('room') || reply.includes('suite') ||
+     reply.includes('deluxe') || reply.includes('standard') ||
+     reply.includes('₹') || reply.includes('night'));
+
+  if (!isRoomContext) return [];
+
   const toSend = [];
-
-  const isRoomInquiry = text.includes('room') || text.includes('book') ||
-    text.includes('stay') || text.includes('suite') ||
-    text.includes('deluxe') || text.includes('standard') ||
-    text.includes('photo') || text.includes('picture') ||
-    text.includes('show') || text.includes('look') ||
-    text.includes('price') || text.includes('cost') ||
-    text.includes('available');
-
-  if (!isRoomInquiry) return [];
 
   if (text.includes('standard') && images.standardRoom) {
     toSend.push(images.standardRoom);
@@ -209,6 +227,7 @@ function getImagesToSend(message, images) {
   } else if (text.includes('suite') && images.suite) {
     toSend.push(images.suite);
   } else {
+    // General room inquiry — send all
     if (images.lobby) toSend.push(images.lobby);
     if (images.standardRoom) toSend.push(images.standardRoom);
     if (images.deluxeRoom) toSend.push(images.deluxeRoom);
@@ -218,6 +237,7 @@ function getImagesToSend(message, images) {
   return toSend;
 }
 
+// ===== EXTRACT BOOKING DATA =====
 function extractBookingData(userMessage, existing = {}) {
   const data = { ...existing };
   const text = userMessage.toLowerCase();
@@ -245,6 +265,7 @@ function extractBookingData(userMessage, existing = {}) {
   return data;
 }
 
+// ===== CHECK BOOKING COMPLETE =====
 function isBookingComplete(data) {
   return data.name && data.checkIn && data.checkOut && data.roomType && data.numberOfGuests;
 }
