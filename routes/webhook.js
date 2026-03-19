@@ -1,3 +1,11 @@
+router.post('/', async (req, res) => {
+  console.log('=== INCOMING MESSAGE ===');
+  console.log('FROM:', req.body.From);
+  console.log('TO:', req.body.To);
+  console.log('BODY:', req.body.Body);
+  console.log('========================');
+  
+  // ... rest of your code
 const express = require('express');
 const router = express.Router();
 const OpenAI = require('openai');
