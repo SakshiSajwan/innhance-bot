@@ -10,7 +10,7 @@ const hotelSchema = new mongoose.Schema({
   // Bot personality & knowledge
   botConfig: {
     assistantName: { type: String, default: 'Inna' },
-    systemPrompt: { type: String, required: true }, // each hotel has their own prompt
+    systemPrompt: { type: String, required: true },
   },
 
   // Room types this hotel offers
@@ -21,6 +21,14 @@ const hotelSchema = new mongoose.Schema({
       totalRooms: { type: Number }, // how many rooms of this type
     }
   ],
+
+  // Hotel & room images
+  images: {
+    lobby: { type: String },
+    standardRoom: { type: String },
+    deluxeRoom: { type: String },
+    suite: { type: String },
+  },
 
   // Subscription
   plan: { type: String, enum: ['trial', 'basic', 'pro'], default: 'trial' },
