@@ -1,14 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const OpenAI = require('openai');
-const twilio = require('twilio');
 const Hotel = require('../models/Hotel');
 const Customer = require('../models/Customer');
 const Conversation = require('../models/Conversation');
 const Booking = require('../models/Booking');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 router.post('/', async (req, res) => {
   console.log('=== INCOMING MESSAGE ===');
@@ -28,7 +26,9 @@ router.post('/', async (req, res) => {
     const hotel = await Hotel.findOne({ whatsappNumber: hotelPhone });
     if (!hotel) {
       console.log('No hotel found for number:', hotelPhone);
-      return res.send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>This number is not registered.</Message></Response>`);
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>This number is not registered.</Message></Response>`;
+      res.set('Content-Type', 'text/xml');
+      return res.send(twiml);
     }
 
     // 2. Find or create customer
@@ -99,31 +99,29 @@ router.post('/', async (req, res) => {
     // 8. Check if images should be sent
     const imagesToSend = getImagesToSend(userMessage, hotel.images);
 
-    // 9. Send images first if needed
-    if (imagesToSend.length > 0) {
-      for (const imageUrl of imagesToSend) {
-        await twilioClient.messages.create({
-          from: hotelPhone,
-          to: customerPhone,
-          mediaUrl: [imageUrl]
-        });
-      }
-    }
-
-    // 10. Send text reply
     console.log(`[${hotel.name}] ${customerPhone}: ${userMessage}`);
     console.log(`[${hotel.name}] Bot: ${botReply}`);
 
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Message>${botReply}</Message>
-</Response>`;
+    // 9. Build TwiML response with images + text
+    let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
+
+    if (imagesToSend.length > 0) {
+      for (const imageUrl of imagesToSend) {
+        twiml += `<Message><Media>${imageUrl}</Media></Message>`;
+      }
+    }
+
+    twiml += `<Message>${botReply}</Message>`;
+    twiml += `</Response>`;
+
     res.set('Content-Type', 'text/xml');
     res.send(twiml);
 
   } catch (error) {
     console.error('Webhook error:', error.message);
-    res.send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, having trouble right now! 😅 Please try again.</Message></Response>`);
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, having trouble right now! 😅 Please try again.</Message></Response>`;
+    res.set('Content-Type', 'text/xml');
+    res.send(twiml);
   }
 });
 
