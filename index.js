@@ -103,8 +103,13 @@ app.post('/webhook', (req, res) => {
 
   const botReply = getBotReply(userMessage);
   console.log(`Bot reply: ${botReply}`);
-  res.json({ reply: botReply });
-});
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+  <Response>
+  <Message>${botReply}</Message>
+  </Response>`;
+  res.set('Content-Type', 'text/xml');
+  res.send(twiml);
+  });
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT} ✅`);
