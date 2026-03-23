@@ -1,14 +1,19 @@
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
-const OpenAI = require('openai');
+const cors = require('cors');
+const verifyToken = require("./middleware/authMiddleware");
+//const OpenAI = require('openai');
 
 const app = express();
+app.use(cors()); 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use("/auth", require("./routes/auth"));
+app.use("/dashboard", require("./routes/dashboard"));
 
 const PORT = process.env.PORT || 8080;
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+//const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
@@ -231,30 +236,30 @@ async function sendRoomPhotos(to) {
 }
 
 // ===== AI REPLY =====
-async function getAIReply(from, userMessage) {
-  if (!conversations[from]) conversations[from] = [];
+// async function getAIReply(from, userMessage) {
+//   if (!conversations[from]) conversations[from] = [];
 
-  conversations[from].push({ role: 'user', content: userMessage });
+//   conversations[from].push({ role: 'user', content: userMessage });
 
   // Keep last 20 messages for context
-  if (conversations[from].length > 20) {
-    conversations[from] = conversations[from].slice(-20);
-  }
+//   if (conversations[from].length > 20) {
+//     conversations[from] = conversations[from].slice(-20);
+//   }
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...conversations[from]
-    ],
-    max_tokens: 400,
-    temperature: 0.7
-  });
+//   const completion = await openai.chat.completions.create({
+//     model: 'gpt-4o-mini',
+//     messages: [
+//       { role: 'system', content: systemPrompt },
+//       ...conversations[from]
+//     ],
+//     max_tokens: 400,
+//     temperature: 0.7
+//   });
 
-  const reply = completion.choices[0].message.content;
-  conversations[from].push({ role: 'assistant', content: reply });
-  return reply;
-}
+//   const reply = completion.choices[0].message.content;
+//   conversations[from].push({ role: 'assistant', content: reply });
+//   return reply;
+// }
 
 // ===== WEBHOOK VERIFICATION =====
 app.get('/webhook', (req, res) => {
@@ -385,6 +390,13 @@ app.post('/webhook', async (req, res) => {
 });
 
 app.get('/', (req, res) => res.send('Innhance Bot is running! 🏨'));
+
+app.get("/api/protected", verifyToken, (req, res) => {
+  res.json({
+    message: "Protected data accessed",
+    user: req.user
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT} ✅`);

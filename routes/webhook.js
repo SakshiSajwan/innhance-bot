@@ -84,19 +84,19 @@ router.post('/', async (req, res) => {
     const recentMessages = conversation.messages.slice(-10);
 
     // 5. Call OpenAI
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: hotel.botConfig.systemPrompt },
-        ...recentMessages.map(m => ({ role: m.role, content: m.content }))
-      ],
-      max_tokens: 300
-    });
+    // const completion = await openai.chat.completions.create({
+    //   model: 'gpt-4o-mini',
+    //   messages: [
+    //     { role: 'system', content: hotel.botConfig.systemPrompt },
+    //     ...recentMessages.map(m => ({ role: m.role, content: m.content }))
+    //   ],
+    //   max_tokens: 300
+    // });
 
-    const botReply = completion.choices[0].message.content;
+    // const botReply = completion.choices[0].message.content;
 
-    // 6. Save bot reply
-    conversation.messages.push({ role: 'assistant', content: botReply });
+    // // 6. Save bot reply
+    // conversation.messages.push({ role: 'assistant', content: botReply });
 
     // 7. Check booking completion
     const collected = conversation.bookingState.collectedData || {};
