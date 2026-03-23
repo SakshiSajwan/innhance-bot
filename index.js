@@ -14,17 +14,13 @@ const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 const META_API_URL = `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`;
 
-// ===== CONVERSATION MEMORY =====
 const conversations = {};
 const sessions = {};
 
-// ===== SYSTEM PROMPT =====
 const systemPrompt = `You are Inna, a warm and friendly hotel booking assistant for Innhance Hotels.
 You speak in a natural, human, conversational way — like a real receptionist, not a robot.
 You use emojis naturally in your responses to make them feel warm and friendly.
 Keep responses concise and clear — not too long.
-
-Here is everything you know about Innhance Hotels:
 
 ROOMS & PRICING:
 - Standard Room: ₹2,500/night (perfect for solo travelers or couples)
@@ -78,7 +74,7 @@ IMPORTANT RULES:
 - Never make up information not provided above
 - When someone wants to book, tell them to use the booking menu`;
 
-// ===== SEND PLAIN TEXT =====
+// ===== SEND TEXT =====
 async function sendText(to, message) {
   try {
     await axios.post(META_API_URL, {
@@ -151,17 +147,17 @@ async function sendList(to, bodyText, sections) {
   }
 }
 
-// ===== SEND MAIN MENU =====
+// ===== MAIN MENU =====
 async function sendMainMenu(to) {
   await sendList(to,
     '👋 *Welcome to Innhance Hotels!*\n\nHow can I help you today?',
     [{
-      title: 'What would you like to do?',
+      title: 'How can we help?',
       rows: [
         { id: 'menu_book', title: '🛏️ Book a Room', description: 'Reserve your stay with us' },
-        { id: 'menu_rooms', title: '🏨 View Rooms & Prices', description: 'See all available rooms' },
+        { id: 'menu_rooms', title: '🏨 Rooms & Prices', description: 'See all available rooms' },
         { id: 'menu_amenities', title: '🏊 Amenities', description: 'Pool, gym, spa & more' },
-        { id: 'menu_checkin', title: '⏰ Check-in / Check-out', description: 'Timings & policies' },
+        { id: 'menu_checkin', title: '⏰ Check-in/Check-out', description: 'Timings & policies' },
         { id: 'menu_offers', title: '🎁 Special Offers', description: 'Deals & discounts' },
         { id: 'menu_contact', title: '📞 Contact Us', description: 'Get in touch with us' }
       ]
@@ -169,16 +165,16 @@ async function sendMainMenu(to) {
   );
 }
 
-// ===== SEND ROOM SELECTION =====
+// ===== ROOM SELECTION =====
 async function sendRoomSelection(to) {
   await sendList(to,
     '🏨 *Choose your room type:*\n\nAll rooms include FREE breakfast & WiFi! 🍳📶',
     [{
       title: 'Our Rooms',
       rows: [
-        { id: 'room_standard', title: '🛏️ Standard Room', description: '₹2,500/night • Solo or couples' },
+        { id: 'room_standard', title: '🛏️ Standard Room', description: '₹2,500/night • Solo/couples' },
         { id: 'room_deluxe', title: '✨ Deluxe Room', description: '₹4,000/night • Beautiful view' },
-        { id: 'room_suite', title: '👑 Suite', description: '₹7,500/night • Ultimate luxury' },
+        { id: 'room_suite', title: '👑 Suite', description: '₹7,500/night • Luxury' },
         { id: 'room_other', title: '✏️ Other / Custom', description: 'Describe your preference' }
       ]
     }]
@@ -217,7 +213,8 @@ async function handleBookingFlow(from, msg) {
     session.guests = msg;
     session.step = 'confirmed';
 
-    const summary = `🎉 *Booking Request Received!*\n\n` +
+    const summary =
+      `🎉 *Booking Request Received!*\n\n` +
       `📛 *Name:* ${session.name}\n` +
       `🛏️ *Room:* ${session.room}\n` +
       `📅 *Check-in:* ${session.checkin}\n` +
@@ -280,47 +277,47 @@ app.post('/webhook', async (req, res) => {
 
     console.log(`Message from ${from}: ${userMessage} (id: ${interactiveId})`);
 
-    // ===== GREETING → show main menu =====
-    if (/^(hi|hii|hiii|hello|hey|helo|good morning|good evening|good afternoon|namaste|start|menu|help)/i.test(userMessage.trim()) && !sessions[from]) {
+    // GREETING → main menu
+    if (/^(hi|hii|hiii|hello|hey|helo|good morning|good evening|namaste|start|menu|help)/i.test(userMessage.trim()) && !sessions[from]) {
       await sendMainMenu(from);
       return;
     }
 
-    // ===== MAIN MENU SELECTIONS =====
+    // MAIN MENU
     if (interactiveId === 'menu_book') {
       await sendRoomSelection(from);
       return;
     }
 
     if (interactiveId === 'menu_rooms') {
-      await sendText(from, `🏨 *Our Rooms & Pricing:*\n\n🛏️ *Standard Room* - ₹2,500/night\nPerfect for solo travelers or couples!\n\n✨ *Deluxe Room* - ₹4,000/night\nSpacious with a beautiful view!\n\n👑 *Suite* - ₹7,500/night\nThe ultimate luxury experience!\n\n✅ All rooms include FREE breakfast & WiFi!\n\nReply *book* to reserve your room! 😊`);
+      await sendText(from, `🏨 *Our Rooms & Pricing:*\n\n🛏️ *Standard Room* - ₹2,500/night\nPerfect for solo travelers!\n\n✨ *Deluxe Room* - ₹4,000/night\nSpacious with a beautiful view!\n\n👑 *Suite* - ₹7,500/night\nUltimate luxury experience!\n\n✅ All rooms include FREE breakfast & WiFi!\n\nReply *book* to reserve! 😊`);
       return;
     }
 
     if (interactiveId === 'menu_amenities') {
-      await sendText(from, `🌟 *Our Amenities (All FREE!):*\n\n🏊 Swimming Pool — 6 AM to 10 PM\n💪 Gym — Open 24/7\n💆 Spa & Wellness — 9 AM to 8 PM\n🍽️ Restaurant — All day dining\n🅿️ Free Parking\n📶 High-speed WiFi everywhere\n🛎️ 24/7 Room Service\n\nAnything else I can help with? 😊`);
+      await sendText(from, `🌟 *Our Amenities (All FREE!):*\n\n🏊 Swimming Pool — 6 AM to 10 PM\n💪 Gym — Open 24/7\n💆 Spa & Wellness — 9 AM to 8 PM\n🍽️ Restaurant — All day dining\n🅿️ Free Parking\n📶 High-speed WiFi everywhere\n🛎️ 24/7 Room Service\n\nAnything else? 😊`);
       return;
     }
 
     if (interactiveId === 'menu_checkin') {
       await sendButtons(from,
-        `⏰ *Check-in & Check-out:*\n\n✅ Check-in: 2:00 PM\n✅ Check-out: 11:00 AM\n🌅 Early check-in available on request\n🕑 Late check-out until 2 PM (+₹500)\n🪪 Valid photo ID required at check-in`,
+        `⏰ *Check-in & Check-out:*\n\n✅ Check-in: 2:00 PM\n✅ Check-out: 11:00 AM\n🌅 Early check-in on request\n🕑 Late check-out until 2 PM (+₹500)\n🪪 Valid photo ID required`,
         ['Book a Room', 'View Offers', 'Contact Us']
       );
       return;
     }
 
     if (interactiveId === 'menu_offers') {
-      await sendText(from, `🎁 *Special Offers:*\n\n🌟 Weekend Special: 15% off Deluxe!\n👨‍👩‍👧 Family Package: Kids under 12 FREE!\n📅 Long Stay: 7 nights = 1 FREE!\n💑 Honeymoon: Dinner + decoration!\n\nWant to grab any deal? Reply *book* to get started! 😊`);
+      await sendText(from, `🎁 *Special Offers:*\n\n🌟 Weekend Special: 15% off Deluxe!\n👨‍👩‍👧 Family Package: Kids under 12 FREE!\n📅 Long Stay: 7 nights = 1 FREE!\n💑 Honeymoon: Dinner + decoration!\n\nReply *book* to get started! 😊`);
       return;
     }
 
     if (interactiveId === 'menu_contact') {
-      await sendText(from, `📞 *Contact Innhance Hotels:*\n\n📱 Phone: +91 98765 43210\n📧 Email: info@innhance.com\n📍 123 Hotel Street, City Centre\n⏰ Front desk: 24/7!\n\nWe're always here for you! 💙`);
+      await sendText(from, `📞 *Contact Innhance Hotels:*\n\n📱 Phone: +91 98765 43210\n📧 Email: info@innhance.com\n📍 123 Hotel Street, City Centre\n⏰ Front desk: 24/7!\n\nWe're always here! 💙`);
       return;
     }
 
-    // ===== ROOM SELECTION → start booking =====
+    // ROOM SELECTION
     if (['room_standard', 'room_deluxe', 'room_suite', 'room_other'].includes(interactiveId)) {
       const roomMap = {
         room_standard: 'Standard Room 🛏️ (₹2,500/night)',
@@ -331,42 +328,40 @@ app.post('/webhook', async (req, res) => {
       sessions[from] = { step: 'awaiting_name', room: roomMap[interactiveId] };
 
       if (interactiveId === 'room_other') {
-        await sendText(from, `No problem! 😊 Please describe the type of room you're looking for!\n\nBut first, what's your *full name*? 📛`);
+        await sendText(from, `No problem! 😊 We'll find the perfect room for you!\n\nFirst, what's your *full name*? 📛`);
       } else {
         await sendText(from, `Excellent choice! 🎉 You've selected *${roomMap[interactiveId]}*!\n\nLet's complete your booking!\n\nFirst, what's your *full name*? 📛`);
       }
       return;
     }
 
-    // ===== BUTTON REPLIES =====
-    if (interactiveId === 'btn_0' && userMessage === 'Book a Room') {
+    // BUTTON REPLIES
+    if (interactiveId === 'btn_0') {
       await sendRoomSelection(from);
       return;
     }
-
-    if (interactiveId === 'btn_1' && userMessage === 'View Offers') {
+    if (interactiveId === 'btn_1') {
       await sendText(from, `🎁 *Special Offers:*\n\n🌟 Weekend Special: 15% off Deluxe!\n👨‍👩‍👧 Family Package: Kids under 12 FREE!\n📅 Long Stay: 7 nights = 1 FREE!\n💑 Honeymoon: Dinner + decoration!`);
       return;
     }
-
-    if (interactiveId === 'btn_2' && userMessage === 'Contact Us') {
+    if (interactiveId === 'btn_2') {
       await sendText(from, `📞 *Contact Us:*\n\n📱 +91 98765 43210\n📧 info@innhance.com\n⏰ 24/7 Front desk!`);
       return;
     }
 
-    // ===== BOOKING FLOW =====
+    // BOOKING FLOW
     if (sessions[from] && sessions[from].step) {
       await handleBookingFlow(from, userMessage);
       return;
     }
 
-    // ===== BOOK KEYWORD =====
-    if (/book|reserve|room|stay/i.test(userMessage) && !sessions[from]) {
+    // BOOK KEYWORD
+    if (/book|reserve|stay/i.test(userMessage) && !sessions[from]) {
       await sendRoomSelection(from);
       return;
     }
 
-    // ===== AI FOR EVERYTHING ELSE =====
+    // AI FOR EVERYTHING ELSE
     if (!conversations[from]) conversations[from] = [];
     conversations[from].push({ role: 'user', content: userMessage });
     if (conversations[from].length > 10) conversations[from] = conversations[from].slice(-10);
