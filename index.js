@@ -15,56 +15,77 @@ const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 const META_API_URL = `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`;
 
 const conversations = {};
-const sessions = {};
 
-// ===== ROOM IMAGES (replace with your actual hotel images) =====
 const roomImages = {
   standard: 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=800',
   deluxe: 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=800',
   suite: 'https://images.unsplash.com/photo-1631049552057-403cdb8f0658?w=800'
 };
 
-const systemPrompt = `You are Inna, a warm and friendly hotel booking assistant for Innhance Hotels.
-You speak naturally and conversationally like a real receptionist.
-Use emojis naturally. Keep responses short and helpful.
+const systemPrompt = `You are Inna, a smart and warm hotel booking assistant for Innhance Hotels. You respond like a real, intelligent human receptionist — not a robot. You understand context, typos, casual language, and natural conversation.
 
-ROOMS & PRICING:
-- Standard Room: ₹2,500/night
-- Deluxe Room: ₹4,000/night  
-- Suite: ₹7,500/night
+HOTEL INFORMATION:
+Rooms & Pricing:
+- Standard Room: ₹2,500/night (cozy, perfect for solo travelers or couples)
+- Deluxe Room: ₹4,000/night (spacious with beautiful city views)
+- Suite: ₹7,500/night (ultimate luxury with premium facilities)
 - All rooms include FREE breakfast and FREE WiFi
 
-CHECK-IN / CHECK-OUT:
-- Check-in: 2:00 PM (early check-in on request)
+Check-in / Check-out:
+- Check-in: 2:00 PM (early check-in available on request)
 - Check-out: 11:00 AM (late check-out until 2 PM for ₹500 extra)
-- Valid photo ID required
+- Valid photo ID required at check-in
 
-CANCELLATION:
+Cancellation Policy:
 - Free cancellation up to 48 hours before check-in
-- 50% charge within 48 hours
+- 50% charge for cancellation within 48 hours
 - No refund for no-shows
 
-SPECIAL OFFERS:
+Special Offers:
 - Weekend Special: 15% off Deluxe rooms
 - Family Package: Kids under 12 stay FREE
-- Long Stay: 7 nights = 1 night FREE
-- Honeymoon Package: includes dinner + decoration
+- Long Stay Deal: 7 nights = 1 night FREE
+- Honeymoon Package: includes romantic dinner + room decoration
 
-LOCATION:
+Location:
 - 123 Hotel Street, City Centre
-- 15 min from airport, 5 min from railway station
-- Free pickup available
+- 15 minutes from airport, 5 minutes from railway station
+- Free pickup available on request
 
-CONTACT:
+Contact:
 - Phone: +91 98765 43210
 - Email: info@innhance.com
-- Front desk: 24/7
+- Front desk available 24/7
 
-RULES:
-- Be warm, friendly, use emojis naturally
-- Keep responses concise
-- Never make up info not provided above
-- For bookings, guide them to use the menu`;
+BOOKING FLOW - When a customer wants to book:
+Collect these details ONE BY ONE in a natural conversational way:
+1. Full name
+2. Check-in date (understand any format like "25 march", "25/3", "next friday" etc)
+3. Check-out date
+4. Number of rooms
+5. Number of guests
+6. Room type preference (if not already selected)
+
+After collecting all details, show a clear booking summary and confirm.
+
+INTELLIGENCE RULES:
+- Understand typos, casual language, mixed language (Hinglish is fine)
+- If someone says "thanx" or "ok" or "sure" in a booking flow context, understand it's a confirmation or that they meant something
+- Parse dates intelligently - "25 march", "25th march 2026", "march 25" all mean the same thing
+- If input seems like a typo or correction, handle it gracefully
+- Never repeat the same question if the user already answered it
+- Be warm, friendly, use emojis naturally but not excessively
+- Keep responses concise — don't write essays
+- If someone asks about rooms, describe them enthusiastically
+- If someone asks to SEE rooms, tell them to type "show rooms" and you'll send photos
+- Handle multiple questions in one message intelligently
+- If someone is mid-booking and asks an unrelated question, answer it briefly then continue the booking
+- Always maintain context from the conversation history
+
+IMPORTANT:
+- Never make up information not provided above
+- If asked something you don't know, say you'll connect them with the front desk
+- Always end responses with a helpful next step or question to keep conversation flowing`;
 
 // ===== SEND TEXT =====
 async function sendText(to, message) {
@@ -204,77 +225,35 @@ async function sendRoomPhotos(to) {
     'Which room catches your eye? 😊',
     [
       { id: 'photo_book', title: '🛏️ Book a Room' },
-      { id: 'photo_more', title: '❓ Ask a Question' }
+      { id: 'photo_ask', title: '❓ Ask a Question' }
     ]
   );
 }
 
-// ===== BOOKING FLOW =====
-async function handleBookingFlow(from, msg) {
-  const session = sessions[from];
+// ===== AI REPLY =====
+async function getAIReply(from, userMessage) {
+  if (!conversations[from]) conversations[from] = [];
 
-  if (session.step === 'awaiting_name') {
-    session.name = msg.trim();
-    session.step = 'awaiting_checkin';
-    await sendText(from, `Lovely name, *${session.name}*! 😊\n\nWhat's your *check-in date*? 📅\n_(e.g. 25 March 2026)_`);
-    return;
+  conversations[from].push({ role: 'user', content: userMessage });
+
+  // Keep last 20 messages for context
+  if (conversations[from].length > 20) {
+    conversations[from] = conversations[from].slice(-20);
   }
 
-  if (session.step === 'awaiting_checkin') {
-    session.checkin = msg.trim();
-    session.step = 'awaiting_checkout';
-    await sendText(from, `Got it! ✅ Check-in on *${session.checkin}*\n\nAnd your *check-out date*? 📅\n_(e.g. 27 March 2026)_`);
-    return;
-  }
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...conversations[from]
+    ],
+    max_tokens: 400,
+    temperature: 0.7
+  });
 
-  if (session.step === 'awaiting_checkout') {
-    session.checkout = msg.trim();
-    session.step = 'awaiting_rooms';
-    await sendButtons(from,
-      `Perfect! ✅ Check-out on *${session.checkout}*\n\nHow many rooms do you need? 🏨`,
-      [
-        { id: 'rooms_1', title: '1 Room' },
-        { id: 'rooms_2', title: '2 Rooms' },
-        { id: 'rooms_3', title: '3+ Rooms' }
-      ]
-    );
-    return;
-  }
-
-  if (session.step === 'awaiting_rooms') {
-    session.numRooms = msg.trim();
-    session.step = 'awaiting_guests';
-    await sendButtons(from,
-      `Got it! *${session.numRooms}* 🏨\n\nHow many guests in total? 👥`,
-      [
-        { id: 'guests_1', title: '1 Guest' },
-        { id: 'guests_2', title: '2 Guests' },
-        { id: 'guests_3', title: '3+ Guests' }
-      ]
-    );
-    return;
-  }
-
-  if (session.step === 'awaiting_guests') {
-    session.guests = msg.trim();
-    session.step = 'confirmed';
-
-    const summary =
-      `🎉 *Booking Request Received!*\n\n` +
-      `📛 *Name:* ${session.name}\n` +
-      `🛏️ *Room:* ${session.room}\n` +
-      `🏨 *No. of Rooms:* ${session.numRooms}\n` +
-      `📅 *Check-in:* ${session.checkin}\n` +
-      `📅 *Check-out:* ${session.checkout}\n` +
-      `👥 *Guests:* ${session.guests}\n\n` +
-      `✅ Our team will call you within *15 minutes* to confirm!\n` +
-      `📞 Please keep your phone reachable.\n\n` +
-      `Thank you for choosing *Innhance Hotels!* 🏨✨`;
-
-    await sendText(from, summary);
-    delete sessions[from];
-    return;
-  }
+  const reply = completion.choices[0].message.content;
+  conversations[from].push({ role: 'assistant', content: reply });
+  return reply;
 }
 
 // ===== WEBHOOK VERIFICATION =====
@@ -290,7 +269,7 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// ===== WEBHOOK HANDLER =====
+// ===== MAIN WEBHOOK =====
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
 
@@ -322,125 +301,86 @@ app.post('/webhook', async (req, res) => {
 
     console.log(`From ${from}: "${userMessage}" (id: ${interactiveId})`);
 
-    // ===== ROOM NUMBER BUTTONS =====
-    if (['rooms_1', 'rooms_2', 'rooms_3'].includes(interactiveId)) {
-      if (sessions[from] && sessions[from].step === 'awaiting_rooms') {
-        await handleBookingFlow(from, userMessage);
-        return;
-      }
-    }
-
-    // ===== GUEST NUMBER BUTTONS =====
-    if (['guests_1', 'guests_2', 'guests_3'].includes(interactiveId)) {
-      if (sessions[from] && sessions[from].step === 'awaiting_guests') {
-        await handleBookingFlow(from, userMessage);
-        return;
-      }
-    }
-
-    // ===== BOOKING FLOW (active session) =====
-    if (sessions[from] && sessions[from].step) {
-      await handleBookingFlow(from, userMessage);
-      return;
-    }
-
-    // ===== GREETING =====
-    if (/^(hi|hii|hiii|hello|hey|helo|good morning|good evening|namaste|start|menu|help)/i.test(userMessage.trim())) {
+    // ===== GREETING → Main Menu =====
+    if (/^(hi|hii|hiii|hello|hey|helo|good morning|good evening|namaste|start|menu|help)/i.test(userMessage.trim()) && !conversations[from]?.length) {
       await sendMainMenu(from);
       return;
     }
 
     // ===== SHOW ROOM PHOTOS =====
-    if (/show.*room|room.*photo|room.*picture|see.*room|view.*room|photo|picture|image/i.test(userMessage) ||
-        interactiveId === 'menu_rooms' || interactiveId === 'photo_more') {
+    if (/show.*room|room.*photo|room.*pic|see.*room|view.*room|photo|picture|image|show me/i.test(userMessage) ||
+        interactiveId === 'menu_rooms') {
       await sendRoomPhotos(from);
+      // Also add to conversation context
+      if (!conversations[from]) conversations[from] = [];
+      conversations[from].push({ role: 'user', content: userMessage });
+      conversations[from].push({ role: 'assistant', content: 'I sent photos of all our rooms - Standard, Deluxe, and Suite.' });
       return;
     }
 
-    // ===== BOOK =====
-    if (interactiveId === 'menu_book' || interactiveId === 'photo_book' ||
-        /book|reserve|want.*room|need.*room/i.test(userMessage)) {
+    // ===== MENU SELECTIONS → add to AI context =====
+    if (interactiveId === 'menu_book' || interactiveId === 'photo_book') {
       await sendRoomSelection(from);
+      if (!conversations[from]) conversations[from] = [];
+      conversations[from].push({ role: 'user', content: 'I want to book a room' });
+      conversations[from].push({ role: 'assistant', content: 'I showed them room selection menu.' });
       return;
     }
 
-    // ===== ROOM SELECTION =====
+    // ===== ROOM SELECTED → AI handles booking flow =====
     if (['room_standard', 'room_deluxe', 'room_suite', 'room_other'].includes(interactiveId)) {
       const roomMap = {
-        room_standard: 'Standard Room 🛏️ (₹2,500/night)',
-        room_deluxe: 'Deluxe Room ✨ (₹4,000/night)',
-        room_suite: 'Suite 👑 (₹7,500/night)',
+        room_standard: 'Standard Room (₹2,500/night)',
+        room_deluxe: 'Deluxe Room (₹4,000/night)',
+        room_suite: 'Suite (₹7,500/night)',
         room_other: 'Custom Room'
       };
-      sessions[from] = { step: 'awaiting_name', room: roomMap[interactiveId] };
-      await sendText(from, `Excellent choice! 🎉 You've selected *${roomMap[interactiveId]}*!\n\nLet's complete your booking! What's your *full name*? 📛`);
+      const selectedRoom = roomMap[interactiveId];
+
+      if (!conversations[from]) conversations[from] = [];
+      conversations[from].push({ role: 'user', content: `I want to book the ${selectedRoom}` });
+      conversations[from].push({ role: 'assistant', content: `Customer selected ${selectedRoom}. Now I need to collect: full name, check-in date, check-out date, number of rooms, number of guests.` });
+
+      const reply = await getAIReply(from, `Great, I've selected the ${selectedRoom}. Please guide me through the booking.`);
+      await sendText(from, reply);
       return;
     }
 
-    // ===== CHECK IN/OUT =====
+    // ===== MENU SHORTCUTS =====
     if (interactiveId === 'menu_checkin') {
-      await sendButtons(from,
-        `⏰ *Check-in & Check-out:*\n\n✅ Check-in: 2:00 PM\n✅ Check-out: 11:00 AM\n🌅 Early check-in available on request\n🕑 Late check-out until 2 PM (+₹500)\n🪪 Valid photo ID required at check-in`,
-        [
-          { id: 'ci_book', title: '🛏️ Book a Room' },
-          { id: 'ci_offers', title: '🎁 View Offers' },
-          { id: 'ci_contact', title: '📞 Contact Us' }
-        ]
-      );
+      const reply = await getAIReply(from, 'What are the check-in and check-out timings?');
+      await sendText(from, reply);
       return;
     }
 
-    if (interactiveId === 'ci_book') { await sendRoomSelection(from); return; }
-    if (interactiveId === 'ci_offers') {
-      await sendText(from, `🎁 *Special Offers:*\n\n🌟 Weekend Special: 15% off Deluxe!\n👨‍👩‍👧 Family Package: Kids under 12 FREE!\n📅 Long Stay: 7 nights = 1 FREE!\n💑 Honeymoon: Dinner + decoration!\n\nReply *book* to grab a deal! 😊`);
-      return;
-    }
-    if (interactiveId === 'ci_contact') {
-      await sendText(from, `📞 *Contact Us:*\n\n📱 +91 98765 43210\n📧 info@innhance.com\n⏰ 24/7 Front desk!`);
-      return;
-    }
-
-    // ===== OFFERS =====
     if (interactiveId === 'menu_offers') {
-      await sendButtons(from,
-        `🎁 *Special Offers:*\n\n🌟 Weekend Special: 15% off Deluxe!\n👨‍👩‍👧 Family Package: Kids under 12 FREE!\n📅 Long Stay: 7 nights = 1 FREE!\n💑 Honeymoon Package: Dinner + decoration!`,
-        [
-          { id: 'offer_book', title: '🛏️ Book Now' },
-          { id: 'offer_rooms', title: '🏨 View Rooms' }
-        ]
-      );
+      const reply = await getAIReply(from, 'What special offers do you have?');
+      await sendText(from, reply);
       return;
     }
 
-    if (interactiveId === 'offer_book') { await sendRoomSelection(from); return; }
-    if (interactiveId === 'offer_rooms') { await sendRoomPhotos(from); return; }
-
-    // ===== CONTACT =====
     if (interactiveId === 'menu_contact') {
-      await sendText(from, `📞 *Contact Innhance Hotels:*\n\n📱 Phone: +91 98765 43210\n📧 Email: info@innhance.com\n📍 123 Hotel Street, City Centre\n⏰ Front desk: Available 24/7!\n\nWe're always here for you! 💙`);
+      const reply = await getAIReply(from, 'How can I contact the hotel?');
+      await sendText(from, reply);
       return;
     }
 
-    // ===== AI FOR EVERYTHING ELSE =====
-    if (!conversations[from]) conversations[from] = [];
-    conversations[from].push({ role: 'user', content: userMessage });
-    if (conversations[from].length > 10) conversations[from] = conversations[from].slice(-10);
+    if (interactiveId === 'photo_ask') {
+      const reply = await getAIReply(from, 'I have a question about the rooms');
+      await sendText(from, reply);
+      return;
+    }
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...conversations[from]
-      ],
-      max_tokens: 300
-    });
-
-    const botReply = completion.choices[0].message.content;
-    conversations[from].push({ role: 'assistant', content: botReply });
-    await sendText(from, botReply);
+    // ===== ALL OTHER MESSAGES → AI =====
+    const reply = await getAIReply(from, userMessage);
+    await sendText(from, reply);
 
   } catch (error) {
     console.error('Error:', error.response?.data || error.message);
+    try {
+      const from = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from;
+      if (from) await sendText(from, "Sorry, I'm having a little trouble right now! 😅 Please try again in a moment.");
+    } catch (e) {}
   }
 });
 
