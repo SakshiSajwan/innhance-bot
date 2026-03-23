@@ -10,7 +10,8 @@ app.use(express.urlencoded({ extended: true }));
 const PORT = process.env.PORT || 8080;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 const META_API_URL = `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`;
 
 // ===== CONVERSATION MEMORY =====
@@ -79,79 +80,75 @@ IMPORTANT RULES:
 
 // ===== SEND PLAIN TEXT =====
 async function sendText(to, message) {
-  await axios.post(META_API_URL, {
-    messaging_product: 'whatsapp',
-    to,
-    type: 'text',
-    text: { body: message }
-  }, {
-    headers: {
-      Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-      'Content-Type': 'application/json'
-    }
-  });
+  try {
+    await axios.post(META_API_URL, {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'text',
+      text: { body: message }
+    }, {
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    });
+  } catch (error) {
+    console.error('sendText error:', error.response?.data || error.message);
+  }
 }
 
-// ===== SEND INTERACTIVE BUTTONS =====
+// ===== SEND BUTTONS =====
 async function sendButtons(to, bodyText, buttons) {
-  await axios.post(META_API_URL, {
-    messaging_product: 'whatsapp',
-    to,
-    type: 'interactive',
-    interactive: {
-      type: 'button',
-      body: { text: bodyText },
-      action: {
-        buttons: buttons.map((btn, i) => ({
-          type: 'reply',
-          reply: { id: `btn_${i}`, title: btn }
-        }))
+  try {
+    await axios.post(META_API_URL, {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text: bodyText },
+        action: {
+          buttons: buttons.map((btn, i) => ({
+            type: 'reply',
+            reply: { id: `btn_${i}`, title: btn }
+          }))
+        }
       }
-    }
-  }, {
-    headers: {
-      Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-      'Content-Type': 'application/json'
-    }
-  });
+    }, {
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    });
+  } catch (error) {
+    console.error('sendButtons error:', error.response?.data || error.message);
+  }
 }
 
-// ===== SEND LIST MESSAGE =====
+// ===== SEND LIST =====
 async function sendList(to, bodyText, sections) {
-  await axios.post(META_API_URL, {
-    messaging_product: 'whatsapp',
-    to,
-    type: 'interactive',
-    interactive: {
-      type: 'list',
-      body: { text: bodyText },
-      action: {
-        button: '🏨 View Options',
-        sections
+  try {
+    await axios.post(META_API_URL, {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'list',
+        body: { text: bodyText },
+        action: {
+          button: '🏨 View Options',
+          sections
+        }
       }
-    }
-  }, {
-    headers: {
-      Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-      'Content-Type': 'application/json'
-    }
-  });
-}
-
-// ===== SEND ROOM SELECTION LIST =====
-async function sendRoomSelection(to) {
-  await sendList(to,
-    '🏨 *Welcome to Innhance Hotels!*\n\nPlease select a room type to book:',
-    [{
-      title: 'Our Rooms',
-      rows: [
-        { id: 'room_standard', title: '🛏️ Standard Room', description: '₹2,500/night • Free breakfast & WiFi' },
-        { id: 'room_deluxe', title: '✨ Deluxe Room', description: '₹4,000/night • Beautiful view' },
-        { id: 'room_suite', title: '👑 Suite', description: '₹7,500/night • Ultimate luxury' },
-        { id: 'room_other', title: '✏️ Other / Custom', description: 'Describe your preference' }
-      ]
-    }]
-  );
+    }, {
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    });
+  } catch (error) {
+    console.error('sendList error:', error.response?.data || error.message);
+  }
 }
 
 // ===== SEND MAIN MENU =====
@@ -161,18 +158,34 @@ async function sendMainMenu(to) {
     [{
       title: 'What would you like to do?',
       rows: [
-        { id: 'menu_book', title: '🛏️ Book a Room', description: 'Reserve your stay' },
+        { id: 'menu_book', title: '🛏️ Book a Room', description: 'Reserve your stay with us' },
         { id: 'menu_rooms', title: '🏨 View Rooms & Prices', description: 'See all available rooms' },
         { id: 'menu_amenities', title: '🏊 Amenities', description: 'Pool, gym, spa & more' },
         { id: 'menu_checkin', title: '⏰ Check-in / Check-out', description: 'Timings & policies' },
-        { id: 'menu_contact', title: '📞 Contact Us', description: 'Get in touch' },
-        { id: 'menu_offers', title: '🎁 Special Offers', description: 'Deals & discounts' }
+        { id: 'menu_offers', title: '🎁 Special Offers', description: 'Deals & discounts' },
+        { id: 'menu_contact', title: '📞 Contact Us', description: 'Get in touch with us' }
       ]
     }]
   );
 }
 
-// ===== HANDLE BOOKING FLOW =====
+// ===== SEND ROOM SELECTION =====
+async function sendRoomSelection(to) {
+  await sendList(to,
+    '🏨 *Choose your room type:*\n\nAll rooms include FREE breakfast & WiFi! 🍳📶',
+    [{
+      title: 'Our Rooms',
+      rows: [
+        { id: 'room_standard', title: '🛏️ Standard Room', description: '₹2,500/night • Solo or couples' },
+        { id: 'room_deluxe', title: '✨ Deluxe Room', description: '₹4,000/night • Beautiful view' },
+        { id: 'room_suite', title: '👑 Suite', description: '₹7,500/night • Ultimate luxury' },
+        { id: 'room_other', title: '✏️ Other / Custom', description: 'Describe your preference' }
+      ]
+    }]
+  );
+}
+
+// ===== BOOKING FLOW =====
 async function handleBookingFlow(from, msg) {
   const session = sessions[from];
 
@@ -222,14 +235,15 @@ async function handleBookingFlow(from, msg) {
 
 // ===== WEBHOOK VERIFICATION =====
 app.get('/webhook', (req, res) => {
-  const VERIFY_TOKEN = 'innhance_verify_token';
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
   if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+    console.log('Webhook verified! ✅');
     res.status(200).send(challenge);
   } else {
+    console.log('Webhook verification failed ❌');
     res.sendStatus(403);
   }
 });
@@ -250,7 +264,6 @@ app.post('/webhook', async (req, res) => {
     let userMessage = '';
     let interactiveId = '';
 
-    // Handle different message types
     if (message.type === 'text') {
       userMessage = message.text.body;
     } else if (message.type === 'interactive') {
@@ -267,35 +280,20 @@ app.post('/webhook', async (req, res) => {
 
     console.log(`Message from ${from}: ${userMessage} (id: ${interactiveId})`);
 
-    // ===== HANDLE INTERACTIVE SELECTIONS =====
+    // ===== GREETING → show main menu =====
+    if (/^(hi|hii|hiii|hello|hey|helo|good morning|good evening|good afternoon|namaste|start|menu|help)/i.test(userMessage.trim()) && !sessions[from]) {
+      await sendMainMenu(from);
+      return;
+    }
 
-    // Main menu selections
-    if (interactiveId === 'menu_book' || /book|reserve|room|stay/i.test(userMessage) && !sessions[from]) {
+    // ===== MAIN MENU SELECTIONS =====
+    if (interactiveId === 'menu_book') {
       await sendRoomSelection(from);
       return;
     }
 
-    // Room selections — start booking flow
-    if (['room_standard', 'room_deluxe', 'room_suite', 'room_other'].includes(interactiveId)) {
-      const roomMap = {
-        room_standard: 'Standard Room 🛏️ (₹2,500/night)',
-        room_deluxe: 'Deluxe Room ✨ (₹4,000/night)',
-        room_suite: 'Suite 👑 (₹7,500/night)',
-        room_other: 'Custom Room'
-      };
-      sessions[from] = { step: 'awaiting_name', room: roomMap[interactiveId] };
-
-      if (interactiveId === 'room_other') {
-        await sendText(from, `No problem! 😊 Please describe the type of room you're looking for and we'll do our best to accommodate you!\n\nBut first, what's your *full name*? 📛`);
-      } else {
-        await sendText(from, `Excellent choice! 🎉 You've selected the *${roomMap[interactiveId]}*!\n\nLet's complete your booking. What's your *full name*? 📛`);
-      }
-      return;
-    }
-
-    // Menu quick options
     if (interactiveId === 'menu_rooms') {
-      await sendText(from, `🏨 *Our Rooms & Pricing:*\n\n🛏️ *Standard Room* - ₹2,500/night\nPerfect for solo travelers or couples!\n\n✨ *Deluxe Room* - ₹4,000/night\nSpacious with a beautiful view!\n\n👑 *Suite* - ₹7,500/night\nThe ultimate luxury experience!\n\n✅ All rooms include FREE breakfast & WiFi!\n\nWant to book? Reply *book* anytime! 😊`);
+      await sendText(from, `🏨 *Our Rooms & Pricing:*\n\n🛏️ *Standard Room* - ₹2,500/night\nPerfect for solo travelers or couples!\n\n✨ *Deluxe Room* - ₹4,000/night\nSpacious with a beautiful view!\n\n👑 *Suite* - ₹7,500/night\nThe ultimate luxury experience!\n\n✅ All rooms include FREE breakfast & WiFi!\n\nReply *book* to reserve your room! 😊`);
       return;
     }
 
@@ -306,9 +304,14 @@ app.post('/webhook', async (req, res) => {
 
     if (interactiveId === 'menu_checkin') {
       await sendButtons(from,
-        `⏰ *Check-in & Check-out:*\n\n✅ Check-in: 2:00 PM\n✅ Check-out: 11:00 AM\n🌅 Early check-in available on request\n🕑 Late check-out until 2 PM (+₹500)\n🪪 Valid photo ID required`,
+        `⏰ *Check-in & Check-out:*\n\n✅ Check-in: 2:00 PM\n✅ Check-out: 11:00 AM\n🌅 Early check-in available on request\n🕑 Late check-out until 2 PM (+₹500)\n🪪 Valid photo ID required at check-in`,
         ['Book a Room', 'View Offers', 'Contact Us']
       );
+      return;
+    }
+
+    if (interactiveId === 'menu_offers') {
+      await sendText(from, `🎁 *Special Offers:*\n\n🌟 Weekend Special: 15% off Deluxe!\n👨‍👩‍👧 Family Package: Kids under 12 FREE!\n📅 Long Stay: 7 nights = 1 FREE!\n💑 Honeymoon: Dinner + decoration!\n\nWant to grab any deal? Reply *book* to get started! 😊`);
       return;
     }
 
@@ -317,8 +320,37 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    if (interactiveId === 'menu_offers') {
-      await sendText(from, `🎁 *Special Offers:*\n\n🌟 Weekend Special: 15% off Deluxe!\n👨‍👩‍👧 Family Package: Kids under 12 FREE!\n📅 Long Stay: 7 nights = 1 FREE!\n💑 Honeymoon: Dinner + decoration!\n\nWant to grab any deal? Reply *book* to get started! 😊`);
+    // ===== ROOM SELECTION → start booking =====
+    if (['room_standard', 'room_deluxe', 'room_suite', 'room_other'].includes(interactiveId)) {
+      const roomMap = {
+        room_standard: 'Standard Room 🛏️ (₹2,500/night)',
+        room_deluxe: 'Deluxe Room ✨ (₹4,000/night)',
+        room_suite: 'Suite 👑 (₹7,500/night)',
+        room_other: 'Custom Room'
+      };
+      sessions[from] = { step: 'awaiting_name', room: roomMap[interactiveId] };
+
+      if (interactiveId === 'room_other') {
+        await sendText(from, `No problem! 😊 Please describe the type of room you're looking for!\n\nBut first, what's your *full name*? 📛`);
+      } else {
+        await sendText(from, `Excellent choice! 🎉 You've selected *${roomMap[interactiveId]}*!\n\nLet's complete your booking!\n\nFirst, what's your *full name*? 📛`);
+      }
+      return;
+    }
+
+    // ===== BUTTON REPLIES =====
+    if (interactiveId === 'btn_0' && userMessage === 'Book a Room') {
+      await sendRoomSelection(from);
+      return;
+    }
+
+    if (interactiveId === 'btn_1' && userMessage === 'View Offers') {
+      await sendText(from, `🎁 *Special Offers:*\n\n🌟 Weekend Special: 15% off Deluxe!\n👨‍👩‍👧 Family Package: Kids under 12 FREE!\n📅 Long Stay: 7 nights = 1 FREE!\n💑 Honeymoon: Dinner + decoration!`);
+      return;
+    }
+
+    if (interactiveId === 'btn_2' && userMessage === 'Contact Us') {
+      await sendText(from, `📞 *Contact Us:*\n\n📱 +91 98765 43210\n📧 info@innhance.com\n⏰ 24/7 Front desk!`);
       return;
     }
 
@@ -328,14 +360,13 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // ===== GREETING — show main menu =====
-    const isGreeting = /^(hi|hii|hiii|hello|hey|helo|good morning|good evening|good afternoon|namaste|start|menu)/i.test(userMessage.trim());
-    if (isGreeting) {
-      await sendMainMenu(from);
+    // ===== BOOK KEYWORD =====
+    if (/book|reserve|room|stay/i.test(userMessage) && !sessions[from]) {
+      await sendRoomSelection(from);
       return;
     }
 
-    // ===== AI for everything else =====
+    // ===== AI FOR EVERYTHING ELSE =====
     if (!conversations[from]) conversations[from] = [];
     conversations[from].push({ role: 'user', content: userMessage });
     if (conversations[from].length > 10) conversations[from] = conversations[from].slice(-10);
@@ -351,7 +382,6 @@ app.post('/webhook', async (req, res) => {
 
     const botReply = completion.choices[0].message.content;
     conversations[from].push({ role: 'assistant', content: botReply });
-
     await sendText(from, botReply);
 
   } catch (error) {
@@ -361,4 +391,9 @@ app.post('/webhook', async (req, res) => {
 
 app.get('/', (req, res) => res.send('Innhance Bot is running! 🏨'));
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT} ✅`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT} ✅`);
+  console.log(`Phone Number ID: ${PHONE_NUMBER_ID ? 'Loaded ✅' : 'Missing ❌'}`);
+  console.log(`WhatsApp Token: ${WHATSAPP_TOKEN ? 'Loaded ✅' : 'Missing ❌'}`);
+  console.log(`Verify Token: ${VERIFY_TOKEN ? 'Loaded ✅' : 'Missing ❌'}`);
+});
