@@ -17,37 +17,29 @@ const META_API_URL = `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messag
 const conversations = {};
 const sessions = {};
 
+// ===== ROOM IMAGES (replace with your actual hotel images) =====
+const roomImages = {
+  standard: 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=800',
+  deluxe: 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=800',
+  suite: 'https://images.unsplash.com/photo-1631049552057-403cdb8f0658?w=800'
+};
+
 const systemPrompt = `You are Inna, a warm and friendly hotel booking assistant for Innhance Hotels.
-You speak in a natural, human, conversational way — like a real receptionist, not a robot.
-You use emojis naturally in your responses to make them feel warm and friendly.
-Keep responses concise and clear — not too long.
+You speak naturally and conversationally like a real receptionist.
+Use emojis naturally. Keep responses short and helpful.
 
 ROOMS & PRICING:
-- Standard Room: ₹2,500/night (perfect for solo travelers or couples)
-- Deluxe Room: ₹4,000/night (spacious with beautiful view)
-- Suite: ₹7,500/night (ultimate luxury experience)
+- Standard Room: ₹2,500/night
+- Deluxe Room: ₹4,000/night  
+- Suite: ₹7,500/night
 - All rooms include FREE breakfast and FREE WiFi
 
 CHECK-IN / CHECK-OUT:
-- Check-in: 2:00 PM (early check-in available on request)
+- Check-in: 2:00 PM (early check-in on request)
 - Check-out: 11:00 AM (late check-out until 2 PM for ₹500 extra)
-- Valid photo ID required at check-in
+- Valid photo ID required
 
-AMENITIES (all free for guests):
-- Swimming Pool: 6 AM - 10 PM
-- Fully Equipped Gym: 24/7
-- Spa & Wellness Centre: 9 AM - 8 PM
-- Free high-speed WiFi everywhere
-- Free parking (valet at ₹200/day)
-- 24/7 room service
-
-RESTAURANT:
-- Breakfast: 7 AM - 10 AM (FREE for guests)
-- Lunch: 12 PM - 3 PM
-- Dinner: 7 PM - 11 PM
-- Cuisines: Indian, Continental, Chinese
-
-CANCELLATION POLICY:
+CANCELLATION:
 - Free cancellation up to 48 hours before check-in
 - 50% charge within 48 hours
 - No refund for no-shows
@@ -55,12 +47,12 @@ CANCELLATION POLICY:
 SPECIAL OFFERS:
 - Weekend Special: 15% off Deluxe rooms
 - Family Package: Kids under 12 stay FREE
-- Long Stay Deal: 7 nights = 1 night FREE
+- Long Stay: 7 nights = 1 night FREE
 - Honeymoon Package: includes dinner + decoration
 
 LOCATION:
-- Address: 123 Hotel Street, City Centre
-- 15 minutes from airport, 5 minutes from railway station
+- 123 Hotel Street, City Centre
+- 15 min from airport, 5 min from railway station
 - Free pickup available
 
 CONTACT:
@@ -68,11 +60,11 @@ CONTACT:
 - Email: info@innhance.com
 - Front desk: 24/7
 
-IMPORTANT RULES:
-- Always be warm, friendly and use emojis naturally
-- Keep responses short and conversational
-- Never make up information not provided above
-- When someone wants to book, tell them to use the booking menu`;
+RULES:
+- Be warm, friendly, use emojis naturally
+- Keep responses concise
+- Never make up info not provided above
+- For bookings, guide them to use the menu`;
 
 // ===== SEND TEXT =====
 async function sendText(to, message) {
@@ -93,6 +85,25 @@ async function sendText(to, message) {
   }
 }
 
+// ===== SEND IMAGE =====
+async function sendImage(to, imageUrl, caption) {
+  try {
+    await axios.post(META_API_URL, {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'image',
+      image: { link: imageUrl, caption }
+    }, {
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    });
+  } catch (error) {
+    console.error('sendImage error:', error.response?.data || error.message);
+  }
+}
+
 // ===== SEND BUTTONS =====
 async function sendButtons(to, bodyText, buttons) {
   try {
@@ -104,9 +115,9 @@ async function sendButtons(to, bodyText, buttons) {
         type: 'button',
         body: { text: bodyText },
         action: {
-          buttons: buttons.map((btn, i) => ({
+          buttons: buttons.map((btn) => ({
             type: 'reply',
-            reply: { id: `btn_${i}`, title: btn }
+            reply: { id: btn.id, title: btn.title }
           }))
         }
       }
@@ -132,7 +143,7 @@ async function sendList(to, bodyText, sections) {
         type: 'list',
         body: { text: bodyText },
         action: {
-          button: '🏨 View Options',
+          button: '👇 View Options',
           sections
         }
       }
@@ -155,8 +166,7 @@ async function sendMainMenu(to) {
       title: 'How can we help?',
       rows: [
         { id: 'menu_book', title: '🛏️ Book a Room', description: 'Reserve your stay with us' },
-        { id: 'menu_rooms', title: '🏨 Rooms & Prices', description: 'See all available rooms' },
-        { id: 'menu_amenities', title: '🏊 Amenities', description: 'Pool, gym, spa & more' },
+        { id: 'menu_rooms', title: '🏨 View Rooms', description: 'See rooms with photos & prices' },
         { id: 'menu_checkin', title: '⏰ Check-in/Check-out', description: 'Timings & policies' },
         { id: 'menu_offers', title: '🎁 Special Offers', description: 'Deals & discounts' },
         { id: 'menu_contact', title: '📞 Contact Us', description: 'Get in touch with us' }
@@ -172,12 +182,30 @@ async function sendRoomSelection(to) {
     [{
       title: 'Our Rooms',
       rows: [
-        { id: 'room_standard', title: '🛏️ Standard Room', description: '₹2,500/night • Solo/couples' },
+        { id: 'room_standard', title: '🛏️ Standard Room', description: '₹2,500/night • Perfect for couples' },
         { id: 'room_deluxe', title: '✨ Deluxe Room', description: '₹4,000/night • Beautiful view' },
-        { id: 'room_suite', title: '👑 Suite', description: '₹7,500/night • Luxury' },
+        { id: 'room_suite', title: '👑 Suite', description: '₹7,500/night • Ultimate luxury' },
         { id: 'room_other', title: '✏️ Other / Custom', description: 'Describe your preference' }
       ]
     }]
+  );
+}
+
+// ===== SEND ROOM PHOTOS =====
+async function sendRoomPhotos(to) {
+  await sendText(to, '📸 Here are our beautiful rooms! 😍');
+  await sendImage(to, roomImages.standard,
+    '🛏️ *Standard Room* - ₹2,500/night\nCozy & comfortable • Free breakfast & WiFi included');
+  await sendImage(to, roomImages.deluxe,
+    '✨ *Deluxe Room* - ₹4,000/night\nSpacious with stunning city views • Free breakfast & WiFi included');
+  await sendImage(to, roomImages.suite,
+    '👑 *Suite* - ₹7,500/night\nThe ultimate luxury experience • Free breakfast & WiFi included');
+  await sendButtons(to,
+    'Which room catches your eye? 😊',
+    [
+      { id: 'photo_book', title: '🛏️ Book a Room' },
+      { id: 'photo_more', title: '❓ Ask a Question' }
+    ]
   );
 }
 
@@ -186,37 +214,56 @@ async function handleBookingFlow(from, msg) {
   const session = sessions[from];
 
   if (session.step === 'awaiting_name') {
-    session.name = msg;
+    session.name = msg.trim();
     session.step = 'awaiting_checkin';
     await sendText(from, `Lovely name, *${session.name}*! 😊\n\nWhat's your *check-in date*? 📅\n_(e.g. 25 March 2026)_`);
     return;
   }
 
   if (session.step === 'awaiting_checkin') {
-    session.checkin = msg;
+    session.checkin = msg.trim();
     session.step = 'awaiting_checkout';
     await sendText(from, `Got it! ✅ Check-in on *${session.checkin}*\n\nAnd your *check-out date*? 📅\n_(e.g. 27 March 2026)_`);
     return;
   }
 
   if (session.step === 'awaiting_checkout') {
-    session.checkout = msg;
+    session.checkout = msg.trim();
+    session.step = 'awaiting_rooms';
+    await sendButtons(from,
+      `Perfect! ✅ Check-out on *${session.checkout}*\n\nHow many rooms do you need? 🏨`,
+      [
+        { id: 'rooms_1', title: '1 Room' },
+        { id: 'rooms_2', title: '2 Rooms' },
+        { id: 'rooms_3', title: '3+ Rooms' }
+      ]
+    );
+    return;
+  }
+
+  if (session.step === 'awaiting_rooms') {
+    session.numRooms = msg.trim();
     session.step = 'awaiting_guests';
     await sendButtons(from,
-      `Perfect! ✅ Check-out on *${session.checkout}*\n\nHow many guests will be staying? 👥`,
-      ['1 Guest', '2 Guests', '3+ Guests']
+      `Got it! *${session.numRooms}* 🏨\n\nHow many guests in total? 👥`,
+      [
+        { id: 'guests_1', title: '1 Guest' },
+        { id: 'guests_2', title: '2 Guests' },
+        { id: 'guests_3', title: '3+ Guests' }
+      ]
     );
     return;
   }
 
   if (session.step === 'awaiting_guests') {
-    session.guests = msg;
+    session.guests = msg.trim();
     session.step = 'confirmed';
 
     const summary =
       `🎉 *Booking Request Received!*\n\n` +
       `📛 *Name:* ${session.name}\n` +
       `🛏️ *Room:* ${session.room}\n` +
+      `🏨 *No. of Rooms:* ${session.numRooms}\n` +
       `📅 *Check-in:* ${session.checkin}\n` +
       `📅 *Check-out:* ${session.checkout}\n` +
       `👥 *Guests:* ${session.guests}\n\n` +
@@ -235,12 +282,10 @@ app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-
   if (mode === 'subscribe' && token === VERIFY_TOKEN) {
     console.log('Webhook verified! ✅');
     res.status(200).send(challenge);
   } else {
-    console.log('Webhook verification failed ❌');
     res.sendStatus(403);
   }
 });
@@ -275,49 +320,51 @@ app.post('/webhook', async (req, res) => {
 
     if (!userMessage) return;
 
-    console.log(`Message from ${from}: ${userMessage} (id: ${interactiveId})`);
+    console.log(`From ${from}: "${userMessage}" (id: ${interactiveId})`);
 
-    // GREETING → main menu
-    if (/^(hi|hii|hiii|hello|hey|helo|good morning|good evening|namaste|start|menu|help)/i.test(userMessage.trim()) && !sessions[from]) {
+    // ===== ROOM NUMBER BUTTONS =====
+    if (['rooms_1', 'rooms_2', 'rooms_3'].includes(interactiveId)) {
+      if (sessions[from] && sessions[from].step === 'awaiting_rooms') {
+        await handleBookingFlow(from, userMessage);
+        return;
+      }
+    }
+
+    // ===== GUEST NUMBER BUTTONS =====
+    if (['guests_1', 'guests_2', 'guests_3'].includes(interactiveId)) {
+      if (sessions[from] && sessions[from].step === 'awaiting_guests') {
+        await handleBookingFlow(from, userMessage);
+        return;
+      }
+    }
+
+    // ===== BOOKING FLOW (active session) =====
+    if (sessions[from] && sessions[from].step) {
+      await handleBookingFlow(from, userMessage);
+      return;
+    }
+
+    // ===== GREETING =====
+    if (/^(hi|hii|hiii|hello|hey|helo|good morning|good evening|namaste|start|menu|help)/i.test(userMessage.trim())) {
       await sendMainMenu(from);
       return;
     }
 
-    // MAIN MENU
-    if (interactiveId === 'menu_book') {
+    // ===== SHOW ROOM PHOTOS =====
+    if (/show.*room|room.*photo|room.*picture|see.*room|view.*room|photo|picture|image/i.test(userMessage) ||
+        interactiveId === 'menu_rooms' || interactiveId === 'photo_more') {
+      await sendRoomPhotos(from);
+      return;
+    }
+
+    // ===== BOOK =====
+    if (interactiveId === 'menu_book' || interactiveId === 'photo_book' ||
+        /book|reserve|want.*room|need.*room/i.test(userMessage)) {
       await sendRoomSelection(from);
       return;
     }
 
-    if (interactiveId === 'menu_rooms') {
-      await sendText(from, `🏨 *Our Rooms & Pricing:*\n\n🛏️ *Standard Room* - ₹2,500/night\nPerfect for solo travelers!\n\n✨ *Deluxe Room* - ₹4,000/night\nSpacious with a beautiful view!\n\n👑 *Suite* - ₹7,500/night\nUltimate luxury experience!\n\n✅ All rooms include FREE breakfast & WiFi!\n\nReply *book* to reserve! 😊`);
-      return;
-    }
-
-    if (interactiveId === 'menu_amenities') {
-      await sendText(from, `🌟 *Our Amenities (All FREE!):*\n\n🏊 Swimming Pool — 6 AM to 10 PM\n💪 Gym — Open 24/7\n💆 Spa & Wellness — 9 AM to 8 PM\n🍽️ Restaurant — All day dining\n🅿️ Free Parking\n📶 High-speed WiFi everywhere\n🛎️ 24/7 Room Service\n\nAnything else? 😊`);
-      return;
-    }
-
-    if (interactiveId === 'menu_checkin') {
-      await sendButtons(from,
-        `⏰ *Check-in & Check-out:*\n\n✅ Check-in: 2:00 PM\n✅ Check-out: 11:00 AM\n🌅 Early check-in on request\n🕑 Late check-out until 2 PM (+₹500)\n🪪 Valid photo ID required`,
-        ['Book a Room', 'View Offers', 'Contact Us']
-      );
-      return;
-    }
-
-    if (interactiveId === 'menu_offers') {
-      await sendText(from, `🎁 *Special Offers:*\n\n🌟 Weekend Special: 15% off Deluxe!\n👨‍👩‍👧 Family Package: Kids under 12 FREE!\n📅 Long Stay: 7 nights = 1 FREE!\n💑 Honeymoon: Dinner + decoration!\n\nReply *book* to get started! 😊`);
-      return;
-    }
-
-    if (interactiveId === 'menu_contact') {
-      await sendText(from, `📞 *Contact Innhance Hotels:*\n\n📱 Phone: +91 98765 43210\n📧 Email: info@innhance.com\n📍 123 Hotel Street, City Centre\n⏰ Front desk: 24/7!\n\nWe're always here! 💙`);
-      return;
-    }
-
-    // ROOM SELECTION
+    // ===== ROOM SELECTION =====
     if (['room_standard', 'room_deluxe', 'room_suite', 'room_other'].includes(interactiveId)) {
       const roomMap = {
         room_standard: 'Standard Room 🛏️ (₹2,500/night)',
@@ -326,42 +373,55 @@ app.post('/webhook', async (req, res) => {
         room_other: 'Custom Room'
       };
       sessions[from] = { step: 'awaiting_name', room: roomMap[interactiveId] };
-
-      if (interactiveId === 'room_other') {
-        await sendText(from, `No problem! 😊 We'll find the perfect room for you!\n\nFirst, what's your *full name*? 📛`);
-      } else {
-        await sendText(from, `Excellent choice! 🎉 You've selected *${roomMap[interactiveId]}*!\n\nLet's complete your booking!\n\nFirst, what's your *full name*? 📛`);
-      }
+      await sendText(from, `Excellent choice! 🎉 You've selected *${roomMap[interactiveId]}*!\n\nLet's complete your booking! What's your *full name*? 📛`);
       return;
     }
 
-    // BUTTON REPLIES
-    if (interactiveId === 'btn_0') {
-      await sendRoomSelection(from);
+    // ===== CHECK IN/OUT =====
+    if (interactiveId === 'menu_checkin') {
+      await sendButtons(from,
+        `⏰ *Check-in & Check-out:*\n\n✅ Check-in: 2:00 PM\n✅ Check-out: 11:00 AM\n🌅 Early check-in available on request\n🕑 Late check-out until 2 PM (+₹500)\n🪪 Valid photo ID required at check-in`,
+        [
+          { id: 'ci_book', title: '🛏️ Book a Room' },
+          { id: 'ci_offers', title: '🎁 View Offers' },
+          { id: 'ci_contact', title: '📞 Contact Us' }
+        ]
+      );
       return;
     }
-    if (interactiveId === 'btn_1') {
-      await sendText(from, `🎁 *Special Offers:*\n\n🌟 Weekend Special: 15% off Deluxe!\n👨‍👩‍👧 Family Package: Kids under 12 FREE!\n📅 Long Stay: 7 nights = 1 FREE!\n💑 Honeymoon: Dinner + decoration!`);
+
+    if (interactiveId === 'ci_book') { await sendRoomSelection(from); return; }
+    if (interactiveId === 'ci_offers') {
+      await sendText(from, `🎁 *Special Offers:*\n\n🌟 Weekend Special: 15% off Deluxe!\n👨‍👩‍👧 Family Package: Kids under 12 FREE!\n📅 Long Stay: 7 nights = 1 FREE!\n💑 Honeymoon: Dinner + decoration!\n\nReply *book* to grab a deal! 😊`);
       return;
     }
-    if (interactiveId === 'btn_2') {
+    if (interactiveId === 'ci_contact') {
       await sendText(from, `📞 *Contact Us:*\n\n📱 +91 98765 43210\n📧 info@innhance.com\n⏰ 24/7 Front desk!`);
       return;
     }
 
-    // BOOKING FLOW
-    if (sessions[from] && sessions[from].step) {
-      await handleBookingFlow(from, userMessage);
+    // ===== OFFERS =====
+    if (interactiveId === 'menu_offers') {
+      await sendButtons(from,
+        `🎁 *Special Offers:*\n\n🌟 Weekend Special: 15% off Deluxe!\n👨‍👩‍👧 Family Package: Kids under 12 FREE!\n📅 Long Stay: 7 nights = 1 FREE!\n💑 Honeymoon Package: Dinner + decoration!`,
+        [
+          { id: 'offer_book', title: '🛏️ Book Now' },
+          { id: 'offer_rooms', title: '🏨 View Rooms' }
+        ]
+      );
       return;
     }
 
-    // BOOK KEYWORD
-    if (/book|reserve|stay/i.test(userMessage) && !sessions[from]) {
-      await sendRoomSelection(from);
+    if (interactiveId === 'offer_book') { await sendRoomSelection(from); return; }
+    if (interactiveId === 'offer_rooms') { await sendRoomPhotos(from); return; }
+
+    // ===== CONTACT =====
+    if (interactiveId === 'menu_contact') {
+      await sendText(from, `📞 *Contact Innhance Hotels:*\n\n📱 Phone: +91 98765 43210\n📧 Email: info@innhance.com\n📍 123 Hotel Street, City Centre\n⏰ Front desk: Available 24/7!\n\nWe're always here for you! 💙`);
       return;
     }
 
-    // AI FOR EVERYTHING ELSE
+    // ===== AI FOR EVERYTHING ELSE =====
     if (!conversations[from]) conversations[from] = [];
     conversations[from].push({ role: 'user', content: userMessage });
     if (conversations[from].length > 10) conversations[from] = conversations[from].slice(-10);
