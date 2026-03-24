@@ -3,14 +3,18 @@ const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const verifyToken = require("./middleware/authMiddleware");
+const { router: bookingRoutes, bookings } = require("./routes/booking");
+
 //const OpenAI = require('openai');
 
 const app = express();
 app.use(cors()); 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use("/booking", bookingRoutes);
 app.use("/auth", require("./routes/auth"));
 app.use("/dashboard", require("./routes/dashboard"));
+app.use("/webhook", require("./routes/webhook"));
 
 const PORT = process.env.PORT || 8080;
 //const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });

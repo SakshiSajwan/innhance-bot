@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const OpenAI = require('openai');
+//const OpenAI = require('openai');
 const axios = require('axios');
 const Hotel = require('../models/Hotel');
 const Customer = require('../models/Customer');
 const Conversation = require('../models/Conversation');
 const Booking = require('../models/Booking');
+const { bookings } = require("./booking");
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+//const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ===== VERIFY WEBHOOK =====
 router.get('/', (req, res) => {
@@ -21,6 +22,34 @@ router.get('/', (req, res) => {
   } else {
     res.sendStatus(403);
   }
+});
+
+
+ router.post("/", (req, res) => {
+  const message = req.body.message?.toLowerCase();
+  const phone = req.body.phone;
+
+  console.log("All bookings:", bookings);
+  console.log("Incoming phone:", phone);
+
+  if (!message) return res.sendStatus(200);
+
+  if (message.includes("paid") || message.includes("done")) {
+
+    const booking = bookings.find(
+      b => b.phone === phone && b.status === "pending"
+    );
+
+    console.log("Matched booking:", booking);
+
+    if (booking) {
+      booking.status = "confirmed";
+
+      console.log("✅ Payment received:", booking);
+    }
+  }
+
+  res.sendStatus(200);
 });
 
 // ===== RECEIVE MESSAGES =====
