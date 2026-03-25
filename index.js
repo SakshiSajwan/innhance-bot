@@ -3,9 +3,15 @@ const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const verifyToken = require("./middleware/authMiddleware");
-const { router: bookingRoutes, bookings } = require("./routes/booking");
-
+const bookingRoutes = require("./routes/booking");
 //const OpenAI = require('openai');
+
+
+const mongoose = require("mongoose");
+
+mongoose.connect("mongodb://127.0.0.1:27017/innhance")
+.then(() => console.log("MongoDB Connected ✅"))
+.catch(err => console.log("MongoDB Error ❌", err));
 
 const app = express();
 app.use(cors()); 

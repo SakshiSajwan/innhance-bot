@@ -1,26 +1,69 @@
 const express = require("express");
 const router = express.Router();
 
-// temporary memory
-let bookings = [];
+const Booking = require("../models/Booking");
+const Hotel = require("../models/Hotel");
+const Customer = require("../models/Customer");
 
-router.post("/create", (req, res) => {
-  const { name, phone, room, amount } = req.body;
+// ===== CREATE BOOKING =====
+router.post("/create", async (req, res) => {
+  try {
+    const {
+      guestName,
+      phone,
+      checkIn,
+      checkOut,
+      roomType,
+      numberOfGuests,
+      totalAmount
+    } = req.body;
 
-  const booking = {
-    id: "INN" + Math.floor(Math.random() * 100000),
-    name,
-    phone,
-    room,
-    amount,
-    status: "pending",
-  };
+    // 🔥 1. Hotel find
+    const hotel = await Hotel.findOne();
+    if (!hotel) {
+      return res.status(400).json({ error: "Hotel not found" });
+    }
 
-  bookings.push(booking);
+    // 🔥 2. Customer find or create
+    let customer = await Customer.findOne({ phone });
 
-  console.log("Booking:", booking);
+    if (!customer) {
+      customer = await Customer.create({
+        phone,
+        hotelId: hotel._id
+      });
+    }
 
-  res.json({ booking });
+    // 🔥 3. Create booking
+    const booking = await Booking.create({
+      hotelId: hotel._id,
+      customerId: customer._id,
+      guestName,
+      phone,
+      checkIn,
+      checkOut,
+      roomType,
+      numberOfGuests,
+      totalAmount,
+      status: "pending"
+    });
+
+    console.log("Booking:", {
+      id: booking._id,
+      name: booking.guestName,
+      phone: booking.phone,
+      room: booking.roomType,
+      amount: booking.totalAmount,
+      status: booking.status
+    });
+
+    return res.json({ booking });
+
+  } catch (err) {
+    console.error("Booking error:", err.message);
+    return res.status(500).json({ error: "Booking failed" });
+  }
 });
 
-module.exports = { router, bookings };
+// ✅ EXPORT
+module.exports = router;
