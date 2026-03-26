@@ -65,5 +65,16 @@ router.post("/create", async (req, res) => {
   }
 });
 
+router.get("/all", async (req, res) => {
+  try {
+    const bookings = await Booking.find().sort({ createdAt: -1 });
+    res.json({ bookings });
+  } catch (err) {
+    console.error("Fetch bookings error:", err.message);
+    res.status(500).json({ error: "Failed to fetch bookings" });
+  }
+});
+
+
 // ✅ EXPORT
 module.exports = router;
