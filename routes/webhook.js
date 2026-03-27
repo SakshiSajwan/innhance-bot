@@ -4,7 +4,7 @@ const axios = require('axios');
 
 const Hotel = require('../models/Hotel');
 const Customer = require('../models/Customer');
-const Conversation = require('../models/Conversation');
+const Conversation = require('../models/Chat');
 const Booking = require('../models/Booking');
 
 
