@@ -29,6 +29,7 @@ app.use("/auth", require("./routes/auth"));
 app.use("/dashboard", require("./routes/dashboard"));
 app.use("/webhook", require("./routes/webhook"));
 app.use("/api/chats", require("./routes/chatRoutes")); // React Frontend Route
+app.use("/api/analytics", require("./routes/analytics"));
 
 const PORT = process.env.PORT || 8080;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
