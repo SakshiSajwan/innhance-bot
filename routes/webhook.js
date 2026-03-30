@@ -397,6 +397,16 @@ function detectPreferredLanguage(text = '') {
   return 'English';
 }
 
+function looksLikeQuestion(text = '') {
+  const input = String(text).trim().toLowerCase();
+  if (!input) return false;
+
+  return (
+    input.includes('?') ||
+    /^(is|are|do|does|can|could|would|will|what|when|where|why|how|which|who)\b/.test(input)
+  );
+}
+
 // ============================================================
 // CORE AI FUNCTION
 // Saves user message → gets history → calls AI → saves reply
@@ -418,6 +428,18 @@ async function getSmartReply(phone, hotelId, customerId, userMessage, contextHin
       role: 'system',
       content: `Reply in ${chosenLanguage}. If the user's latest message is in English, do not switch to Hindi or Hinglish. If the user asks to change language, obey their latest request immediately.`
     });
+
+    messages.push({
+      role: 'system',
+      content: 'Never speak as the customer. Never write replies like "I want to book a room" or any first-person guest statement unless you are explicitly quoting the user. Always reply as the hotel assistant.'
+    });
+
+    if (looksLikeQuestion(userMessage)) {
+      messages.push({
+        role: 'system',
+        content: 'The latest user message is a direct question. Answer that question first in a helpful way. Do not switch into booking flow unless the user clearly asks to book after that.'
+      });
+    }
     
     if (contextHint) {
       // Add context hint as a system note before history
@@ -737,13 +759,12 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
 
     // -- Ask a Question (from photos) --
     if (interactiveId === 'photo_ask') {
-      const reply = await getSmartReply(
-        customerPhone, hotel._id, customer._id,
-        'I have a question about the hotel',
-        'Customer wants to ask a question. Ask them what they would like to know.',
-        detectPreferredLanguage(userMessage)
-      );
-      await sendText(customerPhone, reply, phoneNumberId);
+      const questionPrompt = detectPreferredLanguage(userMessage) === 'English'
+        ? 'Sure, ask me anything about rooms, pricing, check-in, amenities, or booking.'
+        : 'Sure, aap rooms, pricing, check-in, amenities ya booking ke baare mein kuch bhi pooch sakte hain.';
+      await saveMessage(customerPhone, hotel._id, customer._id, 'user', userMessage);
+      await sendText(customerPhone, questionPrompt, phoneNumberId);
+      await saveMessage(customerPhone, hotel._id, customer._id, 'assistant', questionPrompt);
       return;
     }
 
