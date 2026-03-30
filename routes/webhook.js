@@ -350,10 +350,13 @@ async function getHistory(phone, hotelId) {
     if (!chat || !chat.messages || chat.messages.length === 0) return [];
     
     // Get last 40 messages for rich context
-    return chat.messages.slice(-40).map(m => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content
-    }));
+    return chat.messages
+      .filter(m => typeof m.content === 'string' && !m.content.startsWith('['))
+      .slice(-40)
+      .map(m => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content
+      }));
   } catch (err) {
     console.error('❌ getHistory error:', err.message);
     return [];
@@ -369,11 +372,36 @@ async function isFirstMessage(phone, hotelId) {
   }
 }
 
+function detectPreferredLanguage(text = '') {
+  const input = String(text).trim();
+  if (!input) return 'English';
+
+  const lower = input.toLowerCase();
+
+  if (/\b(english|speak english|talk to me in english|reply in english)\b/i.test(lower)) {
+    return 'English';
+  }
+
+  if (/\b(hindi|hindi me|reply in hindi)\b/i.test(lower) || /[\u0900-\u097F]/.test(input)) {
+    return 'Hindi';
+  }
+
+  const hinglishMarkers = [
+    'mujhe', 'mera', 'meri', 'kya', 'hai', 'hain', 'karna', 'chahiye',
+    'kal', 'parso', 'aap', 'hum', 'log', 'ek', 'teen', 'raat'
+  ];
+
+  const markerCount = hinglishMarkers.filter(word => lower.includes(word)).length;
+  if (markerCount >= 2) return 'Hindi';
+
+  return 'English';
+}
+
 // ============================================================
 // CORE AI FUNCTION
 // Saves user message → gets history → calls AI → saves reply
 // ============================================================
-async function getSmartReply(phone, hotelId, customerId, userMessage, contextHint = null) {
+async function getSmartReply(phone, hotelId, customerId, userMessage, contextHint = null, responseLanguage = null) {
   try {
     // Step 1: Save user message to DB
     await saveMessage(phone, hotelId, customerId, 'user', userMessage);
@@ -384,6 +412,12 @@ async function getSmartReply(phone, hotelId, customerId, userMessage, contextHin
     // Step 3: Build messages for OpenAI
     // If there's a context hint (e.g. menu selection), inject it
     let messages = [{ role: 'system', content: SYSTEM_PROMPT }];
+    const chosenLanguage = responseLanguage || detectPreferredLanguage(userMessage);
+
+    messages.push({
+      role: 'system',
+      content: `Reply in ${chosenLanguage}. If the user's latest message is in English, do not switch to Hindi or Hinglish. If the user asks to change language, obey their latest request immediately.`
+    });
     
     if (contextHint) {
       // Add context hint as a system note before history
@@ -606,7 +640,8 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
         // No pending booking found
         const reply = await getSmartReply(
           customerPhone, hotel._id, customer._id, userMessage,
-          'Customer said they paid but no pending booking was found. Politely ask them to clarify or start a new booking.'
+          'Customer said they paid but no pending booking was found. Politely ask them to clarify or start a new booking.',
+          detectPreferredLanguage(userMessage)
         );
         await sendText(customerPhone, reply, phoneNumberId);
         return;
@@ -652,7 +687,8 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       const reply = await getSmartReply(
         customerPhone, hotel._id, customer._id,
         'What special offers and deals do you have?',
-        'Customer clicked on Special Offers from the menu. Tell them about all current deals warmly.'
+        'Customer clicked on Special Offers from the menu. Tell them about all current deals warmly.',
+        detectPreferredLanguage(userMessage)
       );
       await sendText(customerPhone, reply, phoneNumberId);
       return;
@@ -663,7 +699,8 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       const reply = await getSmartReply(
         customerPhone, hotel._id, customer._id,
         'What are the check-in and check-out timings and cancellation policy?',
-        'Customer clicked on Timings & Policies from the menu. Give them all timing info clearly.'
+        'Customer clicked on Timings & Policies from the menu. Give them all timing info clearly.',
+        detectPreferredLanguage(userMessage)
       );
       await sendText(customerPhone, reply, phoneNumberId);
       return;
@@ -674,7 +711,8 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       const reply = await getSmartReply(
         customerPhone, hotel._id, customer._id,
         'How can I contact the hotel directly?',
-        'Customer wants contact information. Share phone number and email warmly.'
+        'Customer wants contact information. Share phone number and email warmly.',
+        detectPreferredLanguage(userMessage)
       );
       await sendText(customerPhone, reply, phoneNumberId);
       return;
@@ -702,7 +740,8 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       const reply = await getSmartReply(
         customerPhone, hotel._id, customer._id,
         'I have a question about the hotel',
-        'Customer wants to ask a question. Ask them what they would like to know.'
+        'Customer wants to ask a question. Ask them what they would like to know.',
+        detectPreferredLanguage(userMessage)
       );
       await sendText(customerPhone, reply, phoneNumberId);
       return;
