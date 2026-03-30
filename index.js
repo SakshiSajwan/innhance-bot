@@ -12,7 +12,7 @@ const roomsRoute = require("./routes/rooms");
 // ✅ IMPORT THE NEW CHAT MODEL
 const Chat = require('./models/Chat');
 
-mongoose.connect("process.env.MONGODB_URI")
+mongoose.connect(process.env.MONGODB_URI)
 .then(() => console.log("MongoDB Connected ✅"))
 .catch(err => console.log("MongoDB Error ❌", err));
 
