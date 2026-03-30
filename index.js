@@ -1,11 +1,35 @@
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
+const cors = require('cors');
+const verifyToken = require("./middleware/authMiddleware");
+const bookingRoutes = require("./routes/booking");
 const OpenAI = require('openai');
 
+const mongoose = require("mongoose");
+const roomsRoute = require("./routes/rooms");
+
+// ✅ IMPORT THE NEW CHAT MODEL
+const Chat = require('./models/Chat');
+
+mongoose.connect("mongodb://127.0.0.1:27017/innhance")
+.then(() => console.log("MongoDB Connected ✅"))
+.catch(err => console.log("MongoDB Error ❌", err));
+
 const app = express();
+app.use(cors()); 
 app.use(express.json());
+
 app.use(express.urlencoded({ extended: true }));
+
+// ── CONNECTED ROUTES ─────────────────────────────────────────────
+app.use("/rooms", roomsRoute);
+app.use("/booking", bookingRoutes);
+app.use("/auth", require("./routes/auth"));
+app.use("/dashboard", require("./routes/dashboard"));
+app.use("/webhook", require("./routes/webhook"));
+app.use("/api/chats", require("./routes/chatRoutes")); // React Frontend Route
+app.use("/api/analytics", require("./routes/analytics"));
 
 const PORT = process.env.PORT || 8080;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -13,8 +37,6 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 const META_API_URL = `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`;
-
-const conversations = {};
 
 const roomImages = {
   standard: 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=800',
@@ -86,6 +108,11 @@ IMPORTANT:
 - Never make up information not provided above
 - If asked something you don't know, say you'll connect them with the front desk
 - Always end responses with a helpful next step or question to keep conversation flowing`;
+
+// ===== HELPER: GET CURRENT TIME =====
+function getCurrentTime() {
+  return new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+}
 
 // ===== SEND TEXT =====
 async function sendText(to, message) {
@@ -168,7 +195,7 @@ async function sendList(to, bodyText, sections) {
           sections
         }
       }
-    }, {
+    } , {
       headers: {
         Authorization: `Bearer ${WHATSAPP_TOKEN}`,
         'Content-Type': 'application/json'
@@ -230,30 +257,63 @@ async function sendRoomPhotos(to) {
   );
 }
 
-// ===== AI REPLY =====
-async function getAIReply(from, userMessage) {
-  if (!conversations[from]) conversations[from] = [];
+// ✅ ===== UPDATED: AI REPLY WITH MONGODB =====
+async function getAIReply(phone, userMessage) {
+  try {
+    // 1. Find the chat in DB
+    let chat = await Chat.findOne({ phone: phone });
+    
+    // Create new chat if it doesn't exist
+    if (!chat) {
+      chat = new Chat({
+        phone: phone,
+        name: 'Guest ' + phone.slice(-4),
+        avatar: 'G',
+        messages: []
+      });
+    }
 
-  conversations[from].push({ role: 'user', content: userMessage });
+    const timeStr = getCurrentTime();
 
-  // Keep last 20 messages for context
-  if (conversations[from].length > 20) {
-    conversations[from] = conversations[from].slice(-20);
+    // 2. Add User Message to DB
+    chat.messages.push({ role: 'user', content: userMessage, time: timeStr });
+    chat.lastMessage = userMessage;
+    chat.unread += 1; // Increment unread for the React Dashboard
+    chat.time = 'Just now';
+    await chat.save();
+
+    // 3. Prepare message history for OpenAI (last 20 messages)
+    const recentMessages = chat.messages.slice(-20).map(m => ({
+      role: m.role,
+      content: m.content
+    }));
+
+    // ✅ ACTIVE OPENAI CALL
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...recentMessages
+      ],
+      max_tokens: 400,
+      temperature: 0.7
+    });
+    
+    const reply = completion.choices[0].message.content;
+
+    // 4. Add AI Reply to DB
+    const replyTimeStr = getCurrentTime();
+    chat.messages.push({ role: 'assistant', content: reply, time: replyTimeStr });
+    chat.lastMessage = reply; 
+    chat.time = 'Just now';
+    await chat.save();
+
+    return reply;
+
+  } catch (error) {
+    console.error("Error in getAIReply:", error);
+    return "Sorry, I am having a little trouble thinking right now.";
   }
-
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...conversations[from]
-    ],
-    max_tokens: 400,
-    temperature: 0.7
-  });
-
-  const reply = completion.choices[0].message.content;
-  conversations[from].push({ role: 'assistant', content: reply });
-  return reply;
 }
 
 // ===== WEBHOOK VERIFICATION =====
@@ -301,29 +361,66 @@ app.post('/webhook', async (req, res) => {
 
     console.log(`From ${from}: "${userMessage}" (id: ${interactiveId})`);
 
+    // Helper function to quickly log system interactions to DB without making a full AI call
+    const logInteractionToDB = async (phone, actionDescription) => {
+      let chat = await Chat.findOne({ phone: phone });
+      if (!chat) return;
+      
+      const timeStr = getCurrentTime();
+      chat.messages.push({ role: 'assistant', content: actionDescription, time: timeStr });
+      chat.lastMessage = actionDescription;
+      chat.time = 'Just now';
+      await chat.save();
+    };
+
     // ===== GREETING → Main Menu =====
-    if (/^(hi|hii|hiii|hello|hey|helo|good morning|good evening|namaste|start|menu|help)/i.test(userMessage.trim()) && !conversations[from]?.length) {
-      await sendMainMenu(from);
-      return;
+    if (/^(hi|hii|hiii|hello|hey|helo|good morning|good evening|namaste|start|menu|help)/i.test(userMessage.trim())) {
+       // Only send menu if it's a new interaction or explicit request. To keep it simple, we check DB.
+       const existingChat = await Chat.findOne({ phone: from });
+       if (!existingChat || existingChat.messages.length === 0 || /^(menu|start)/i.test(userMessage.trim())) {
+         await sendMainMenu(from);
+         return;
+       }
     }
 
     // ===== SHOW ROOM PHOTOS =====
     if (/show.*room|room.*photo|room.*pic|see.*room|view.*room|photo|picture|image|show me/i.test(userMessage) ||
         interactiveId === 'menu_rooms') {
       await sendRoomPhotos(from);
-      // Also add to conversation context
-      if (!conversations[from]) conversations[from] = [];
-      conversations[from].push({ role: 'user', content: userMessage });
-      conversations[from].push({ role: 'assistant', content: 'I sent photos of all our rooms - Standard, Deluxe, and Suite.' });
+      
+      // Save interaction to DB
+      let chat = await Chat.findOne({ phone: from });
+      if (!chat) {
+         chat = new Chat({ phone: from, name: 'Guest ' + from.slice(-4), avatar: 'G', messages: [] });
+      }
+      const timeStr = getCurrentTime();
+      chat.messages.push({ role: 'user', content: userMessage, time: timeStr });
+      chat.messages.push({ role: 'assistant', content: 'Sent photos of all rooms (Standard, Deluxe, Suite).', time: timeStr });
+      chat.lastMessage = 'Sent photos of all rooms.';
+      chat.time = 'Just now';
+      chat.unread += 1;
+      await chat.save();
+      
       return;
     }
 
-    // ===== MENU SELECTIONS → add to AI context =====
+    // ===== MENU SELECTIONS → log to DB =====
     if (interactiveId === 'menu_book' || interactiveId === 'photo_book') {
       await sendRoomSelection(from);
-      if (!conversations[from]) conversations[from] = [];
-      conversations[from].push({ role: 'user', content: 'I want to book a room' });
-      conversations[from].push({ role: 'assistant', content: 'I showed them room selection menu.' });
+      
+      // Log to DB
+      let chat = await Chat.findOne({ phone: from });
+      if (!chat) {
+         chat = new Chat({ phone: from, name: 'Guest ' + from.slice(-4), avatar: 'G', messages: [] });
+      }
+      const timeStr = getCurrentTime();
+      chat.messages.push({ role: 'user', content: 'I want to book a room', time: timeStr });
+      chat.messages.push({ role: 'assistant', content: 'Showed room selection menu.', time: timeStr });
+      chat.lastMessage = 'Showed room selection menu.';
+      chat.time = 'Just now';
+      chat.unread += 1;
+      await chat.save();
+      
       return;
     }
 
@@ -337,11 +434,7 @@ app.post('/webhook', async (req, res) => {
       };
       const selectedRoom = roomMap[interactiveId];
 
-      if (!conversations[from]) conversations[from] = [];
-      conversations[from].push({ role: 'user', content: `I want to book the ${selectedRoom}` });
-      conversations[from].push({ role: 'assistant', content: `Customer selected ${selectedRoom}. Now I need to collect: full name, check-in date, check-out date, number of rooms, number of guests.` });
-
-      const reply = await getAIReply(from, `Great, I've selected the ${selectedRoom}. Please guide me through the booking.`);
+      const reply = await getAIReply(from, `I want to book the ${selectedRoom}. Please guide me through the booking.`);
       await sendText(from, reply);
       return;
     }
@@ -376,7 +469,7 @@ app.post('/webhook', async (req, res) => {
     await sendText(from, reply);
 
   } catch (error) {
-    console.error('Error:', error.response?.data || error.message);
+    console.error('Error in webhook post:', error.response?.data || error.message);
     try {
       const from = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from;
       if (from) await sendText(from, "Sorry, I'm having a little trouble right now! 😅 Please try again in a moment.");
@@ -385,6 +478,13 @@ app.post('/webhook', async (req, res) => {
 });
 
 app.get('/', (req, res) => res.send('Innhance Bot is running! 🏨'));
+
+app.get("/api/protected", verifyToken, (req, res) => {
+  res.json({
+    message: "Protected data accessed",
+    user: req.user
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT} ✅`);

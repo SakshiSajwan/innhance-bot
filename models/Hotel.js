@@ -17,11 +17,26 @@ const hotelSchema = new mongoose.Schema({
   // Room types this hotel offers
   rooms: [
     {
-      type: { type: String },       // e.g. "Standard", "Deluxe", "Suite"
-      price: { type: Number },      // per night
-      totalRooms: { type: Number }, // how many rooms of this type
+      name: { type: String },   // rename from type → name
+      price: { type: Number },
+
+      totalRooms: { type: Number },
+      availableRooms: { type: Number },
+
+      description: { type: String },
+
+      amenities: [{ type: String }],
+
+      image: { type: String },
+
+      roomNumbers: [
+        {
+          num: { type: String },
+          booked: { type: Boolean, default: false }
+        }
+      ]
     }
-  ],
+  ], // <--- Added the missing comma here!
 
   // Hotel & room images
   images: {

@@ -12,15 +12,15 @@ const bookingSchema = new mongoose.Schema({
   numberOfGuests: { type: Number, required: true },
 
   totalAmount: { type: Number },
+
   status: {
     type: String,
     enum: ['pending', 'confirmed', 'cancelled', 'completed'],
     default: 'pending'
   },
 
-  // Which channel booked
-  source: { type: String, default: 'whatsapp' },
+  source: { type: String, default: 'whatsapp' }
 
-}, { timestamps: true });
+}, { timestamps: true }); // ✅ FIX
 
 module.exports = mongoose.model('Booking', bookingSchema);
