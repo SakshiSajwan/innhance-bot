@@ -250,11 +250,12 @@ async function sendMainMenu(to, phoneNumberId) {
     [{
       title: 'What can we help with?',
       rows: [
-        { id: 'menu_book',    title: '🛏️ Book a Room',         description: 'Reserve your perfect stay'     },
-        { id: 'menu_rooms',   title: '🏨 View Rooms & Photos',  description: 'See all rooms with prices'     },
-        { id: 'menu_offers',  title: '🎁 Special Offers',       description: 'Deals & discounts available'   },
-        { id: 'menu_checkin', title: '⏰ Timings & Policies',   description: 'Check-in, check-out & more'    },
-        { id: 'menu_contact', title: '📞 Contact Us',           description: 'Reach our team directly'       },
+        // ✅ FIX: All titles kept under 24 characters (WhatsApp hard limit)
+        { id: 'menu_book',    title: '🛏️ Book a Room',     description: 'Reserve your perfect stay'   },
+        { id: 'menu_rooms',   title: '🏨 Rooms & Photos',   description: 'See all rooms with prices'   },
+        { id: 'menu_offers',  title: '🎁 Special Offers',   description: 'Deals & discounts available' },
+        { id: 'menu_checkin', title: '⏰ Timings & Policy', description: 'Check-in, check-out & more'  },
+        { id: 'menu_contact', title: '📞 Contact Us',       description: 'Reach our team directly'     },
       ],
     }],
     phoneNumberId
@@ -264,13 +265,14 @@ async function sendMainMenu(to, phoneNumberId) {
 async function sendRoomMenu(to, phoneNumberId) {
   await sendList(
     to,
-    '🏨 *Choose your room type:*\n\n✅ All rooms include FREE breakfast & WiFi!',
+    // ✅ FIX: Moved prices into body text since titles must be ≤24 chars
+    '🏨 *Choose your room type:*\n\n• 🛏️ Standard — ₹2,500/night\n• ✨ Deluxe — ₹4,000/night\n• 👑 Suite — ₹7,500/night\n\n✅ All rooms include FREE breakfast & WiFi!',
     [{
       title: 'Available Rooms',
       rows: [
-        { id: 'room_standard', title: '🛏️ Standard — ₹2,500/night', description: 'Cozy & comfortable'   },
-        { id: 'room_deluxe',   title: '✨ Deluxe — ₹4,000/night',   description: 'Spacious with city view' },
-        { id: 'room_suite',    title: '👑 Suite — ₹7,500/night',    description: 'Ultimate luxury'         },
+        { id: 'room_standard', title: '🛏️ Standard Room', description: '₹2,500/night — Cozy & comfortable'  },
+        { id: 'room_deluxe',   title: '✨ Deluxe Room',   description: '₹4,000/night — Beautiful city views' },
+        { id: 'room_suite',    title: '👑 Suite',          description: '₹7,500/night — Ultimate luxury'      },
       ],
     }],
     phoneNumberId
@@ -306,6 +308,8 @@ async function sendPaymentQR(to, phoneNumberId) {
 // DATABASE FUNCTIONS
 // ============================================================
 
+// ✅ FIX: Removed customerId from $setOnInsert — it was also in $set,
+//         causing a MongoDB conflict error on upsert.
 async function saveMessage(phone, hotelId, customerId, role, content) {
   try {
     const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -313,7 +317,7 @@ async function saveMessage(phone, hotelId, customerId, role, content) {
       { phone, hotelId },
       {
         $setOnInsert: {
-          phone, hotelId, customerId,
+          phone, hotelId,
           name: 'Guest ' + phone.slice(-4),
           avatar: 'G', unread: 0,
         },
@@ -559,7 +563,7 @@ router.post('/', async (req, res) => {
       return;
     }
 
-    let userMessage  = '';
+    let userMessage   = '';
     let interactiveId = '';
 
     if (message.type === 'text') {
@@ -586,10 +590,11 @@ router.post('/', async (req, res) => {
     }
 
     // ── Find or Create Customer ─────────────────────────────────
+    // ✅ FIX: Replaced deprecated { new: true } with { returnDocument: 'after' }
     const customer = await Customer.findOneAndUpdate(
       { phone: customerPhone, hotelId: hotel._id },
       { lastSeen: new Date() },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
 
     // ══════════════════════════════════════════════════════════
