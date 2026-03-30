@@ -1,26 +1,25 @@
 const express = require('express');
-const router = express.Router();
-const axios = require('axios');
-const OpenAI = require('openai');
+const router  = express.Router();
+const axios   = require('axios');
+const OpenAI  = require('openai');
 
-const Hotel = require('../models/Hotel');
+const Hotel    = require('../models/Hotel');
 const Customer = require('../models/Customer');
-const Chat = require('../models/Chat');
-const Booking = require('../models/Booking');
+const Chat     = require('../models/Chat');
+const Booking  = require('../models/Booking');
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const openai          = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const WHATSAPP_TOKEN  = process.env.WHATSAPP_TOKEN;
+const PAYMENT_QR_URL  = 'https://i.ibb.co/b5dPnbs1/qr.jpg';
 
 const roomImages = {
   standard: 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=800',
-  deluxe: 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=800',
-  suite: 'https://images.unsplash.com/photo-1631049552057-403cdb8f0658?w=800'
+  deluxe:   'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=800',
+  suite:    'https://images.unsplash.com/photo-1631049552057-403cdb8f0658?w=800',
 };
 
-const PAYMENT_QR_URL = 'https://i.ibb.co/b5dPnbs1/qr.jpg';
-
 // ============================================================
-// MASTER SYSTEM PROMPT — Smart, context-aware, never repeats
+// MASTER SYSTEM PROMPT
 // ============================================================
 const SYSTEM_PROMPT = `You are Inna, the AI receptionist for Innhance Hotels. You are warm, smart, witty, and speak like a real human — not a robot. You handle everything: answering questions, booking rooms, taking payments, and helping guests.
 
@@ -109,7 +108,7 @@ SMART BEHAVIOUR:
 LANGUAGE RULES:
 - Detect the language the customer is writing in and ALWAYS reply in the SAME language
 - If customer writes in Hindi — reply in Hindi
-- If customer writes in Hinglish — reply in Hinglish  
+- If customer writes in Hinglish — reply in Hinglish
 - If customer writes in Gujarati — reply in Gujarati
 - If customer writes in Marathi — reply in Marathi
 - If customer writes in Tamil — reply in Tamil
@@ -120,16 +119,13 @@ LANGUAGE RULES:
 - If customer writes in Malayalam — reply in Malayalam
 - If customer writes in Arabic — reply in Arabic
 - If customer writes in French, Spanish, German or any other language — reply in that language
-- For all Indian languages you can use the Roman script (English letters) version if customer is using that
-- Example: Customer writes "mujhe room book karna hai" → reply in Hinglish
-- Example: Customer writes "મને રૂમ જોઈએ છે" → reply in Gujarati
-- Example: Customer writes "முறை பண்ண வேண்டும்" → reply in Tamil
+- For all Indian languages you can use Roman script if customer is using that
 - NEVER switch languages mid-conversation unless customer switches first
 - Keep all prices, room names and hotel info the same — just the language changes
 
 NEVER DO:
 - Never ask for a detail you already have
-- Never greet again mid-conversation  
+- Never greet again mid-conversation
 - Never say "I'm just an AI" or "I don't have access to"
 - Never make up prices or policies not listed above
 - Never send the same message twice
@@ -147,13 +143,13 @@ async function sendText(to, message, phoneNumberId) {
         messaging_product: 'whatsapp',
         to,
         type: 'text',
-        text: { body: message }
+        text: { body: message },
       },
       {
         headers: {
           Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+        },
       }
     );
   } catch (err) {
@@ -169,13 +165,13 @@ async function sendImage(to, imageUrl, caption, phoneNumberId) {
         messaging_product: 'whatsapp',
         to,
         type: 'image',
-        image: { link: imageUrl, caption }
+        image: { link: imageUrl, caption },
       },
       {
         headers: {
           Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+        },
       }
     );
   } catch (err) {
@@ -197,16 +193,16 @@ async function sendButtons(to, bodyText, buttons, phoneNumberId) {
           action: {
             buttons: buttons.map(btn => ({
               type: 'reply',
-              reply: { id: btn.id, title: btn.title }
-            }))
-          }
-        }
+              reply: { id: btn.id, title: btn.title },
+            })),
+          },
+        },
       },
       {
         headers: {
           Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+        },
       }
     );
   } catch (err) {
@@ -227,15 +223,15 @@ async function sendList(to, bodyText, sections, phoneNumberId) {
           body: { text: bodyText },
           action: {
             button: '👇 View Options',
-            sections
-          }
-        }
+            sections,
+          },
+        },
       },
       {
         headers: {
           Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+        },
       }
     );
   } catch (err) {
@@ -250,16 +246,16 @@ async function sendList(to, bodyText, sections, phoneNumberId) {
 async function sendMainMenu(to, phoneNumberId) {
   await sendList(
     to,
-    '👋 *Welcome to Innhance Hotels!*\n\nI\'m Inna, your personal hotel assistant. How can I help you today? 😊',
+    "👋 *Welcome to Innhance Hotels!*\n\nI'm Inna, your personal hotel assistant. How can I help you today? 😊",
     [{
       title: 'What can we help with?',
       rows: [
-        { id: 'menu_book', title: '🛏️ Book a Room', description: 'Reserve your perfect stay' },
-        { id: 'menu_rooms', title: '🏨 View Rooms & Photos', description: 'See all rooms with prices' },
-        { id: 'menu_offers', title: '🎁 Special Offers', description: 'Deals & discounts available' },
-        { id: 'menu_checkin', title: '⏰ Timings & Policies', description: 'Check-in, check-out & more' },
-        { id: 'menu_contact', title: '📞 Contact Us', description: 'Reach our team directly' }
-      ]
+        { id: 'menu_book',    title: '🛏️ Book a Room',         description: 'Reserve your perfect stay'     },
+        { id: 'menu_rooms',   title: '🏨 View Rooms & Photos',  description: 'See all rooms with prices'     },
+        { id: 'menu_offers',  title: '🎁 Special Offers',       description: 'Deals & discounts available'   },
+        { id: 'menu_checkin', title: '⏰ Timings & Policies',   description: 'Check-in, check-out & more'    },
+        { id: 'menu_contact', title: '📞 Contact Us',           description: 'Reach our team directly'       },
+      ],
     }],
     phoneNumberId
   );
@@ -272,26 +268,26 @@ async function sendRoomMenu(to, phoneNumberId) {
     [{
       title: 'Available Rooms',
       rows: [
-        { id: 'room_standard', title: '🛏️ Standard — ₹2,500/night', description: 'Cozy & comfortable' },
-        { id: 'room_deluxe', title: '✨ Deluxe — ₹4,000/night', description: 'Spacious with city view' },
-        { id: 'room_suite', title: '👑 Suite — ₹7,500/night', description: 'Ultimate luxury' }
-      ]
+        { id: 'room_standard', title: '🛏️ Standard — ₹2,500/night', description: 'Cozy & comfortable'   },
+        { id: 'room_deluxe',   title: '✨ Deluxe — ₹4,000/night',   description: 'Spacious with city view' },
+        { id: 'room_suite',    title: '👑 Suite — ₹7,500/night',    description: 'Ultimate luxury'         },
+      ],
     }],
     phoneNumberId
   );
 }
 
 async function sendRoomPhotos(to, phoneNumberId) {
-  await sendText(to, '📸 *Here\'s a look at our beautiful rooms!* 😍', phoneNumberId);
+  await sendText(to, "📸 *Here's a look at our beautiful rooms!* 😍", phoneNumberId);
   await sendImage(to, roomImages.standard, '🛏️ *Standard Room* — ₹2,500/night\nCozy & comfortable | Free breakfast & WiFi ✅', phoneNumberId);
-  await sendImage(to, roomImages.deluxe, '✨ *Deluxe Room* — ₹4,000/night\nSpacious with stunning city views | Free breakfast & WiFi ✅', phoneNumberId);
-  await sendImage(to, roomImages.suite, '👑 *Suite* — ₹7,500/night\nUltimate luxury experience | Free breakfast & WiFi ✅', phoneNumberId);
+  await sendImage(to, roomImages.deluxe,   '✨ *Deluxe Room* — ₹4,000/night\nSpacious with stunning city views | Free breakfast & WiFi ✅', phoneNumberId);
+  await sendImage(to, roomImages.suite,    '👑 *Suite* — ₹7,500/night\nUltimate luxury experience | Free breakfast & WiFi ✅', phoneNumberId);
   await sendButtons(
     to,
     'Which room would you like to book? 😊',
     [
       { id: 'photo_book', title: '🛏️ Book a Room' },
-      { id: 'photo_ask', title: '❓ Ask a Question' }
+      { id: 'photo_ask',  title: '❓ Ask a Question' },
     ],
     phoneNumberId
   );
@@ -313,31 +309,24 @@ async function sendPaymentQR(to, phoneNumberId) {
 async function saveMessage(phone, hotelId, customerId, role, content) {
   try {
     const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    
     await Chat.updateOne(
       { phone, hotelId },
       {
         $setOnInsert: {
-          phone,
-          hotelId,
-          customerId,
+          phone, hotelId, customerId,
           name: 'Guest ' + phone.slice(-4),
-          avatar: 'G',
-          unread: 0
+          avatar: 'G', unread: 0,
         },
         $set: {
           customerId,
           lastMessage: content.substring(0, 120),
-          time: 'Just now'
+          time: 'Just now',
         },
-        $push: {
-          messages: { role, content, time }
-        },
-        ...(role === 'user' ? { $inc: { unread: 1 } } : {})
+        $push: { messages: { role, content, time } },
+        ...(role === 'user' ? { $inc: { unread: 1 } } : {}),
       },
       { upsert: true }
     );
-
     return Chat.findOne({ phone, hotelId });
   } catch (err) {
     console.error('❌ saveMessage error:', err.message);
@@ -347,15 +336,13 @@ async function saveMessage(phone, hotelId, customerId, role, content) {
 async function getHistory(phone, hotelId) {
   try {
     const chat = await Chat.findOne({ phone, hotelId });
-    if (!chat || !chat.messages || chat.messages.length === 0) return [];
-    
-    // Get last 40 messages for rich context
+    if (!chat?.messages?.length) return [];
     return chat.messages
       .filter(m => typeof m.content === 'string' && !m.content.startsWith('['))
       .slice(-40)
       .map(m => ({
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content: m.content
+        role:    m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content,
       }));
   } catch (err) {
     console.error('❌ getHistory error:', err.message);
@@ -366,33 +353,20 @@ async function getHistory(phone, hotelId) {
 async function isFirstMessage(phone, hotelId) {
   try {
     const chat = await Chat.findOne({ phone, hotelId });
-    return !chat || !chat.messages || chat.messages.length === 0;
-  } catch (err) {
-    return true;
-  }
+    return !chat?.messages?.length;
+  } catch { return true; }
 }
 
 function detectPreferredLanguage(text = '') {
-  const input = String(text).trim();
+  const input  = String(text).trim();
+  const lower  = input.toLowerCase();
   if (!input) return 'English';
 
-  const lower = input.toLowerCase();
+  if (/\b(english|speak english|reply in english)\b/i.test(lower)) return 'English';
+  if (/\b(hindi|hindi me|reply in hindi)\b/i.test(lower) || /[\u0900-\u097F]/.test(input)) return 'Hindi';
 
-  if (/\b(english|speak english|talk to me in english|reply in english)\b/i.test(lower)) {
-    return 'English';
-  }
-
-  if (/\b(hindi|hindi me|reply in hindi)\b/i.test(lower) || /[\u0900-\u097F]/.test(input)) {
-    return 'Hindi';
-  }
-
-  const hinglishMarkers = [
-    'mujhe', 'mera', 'meri', 'kya', 'hai', 'hain', 'karna', 'chahiye',
-    'kal', 'parso', 'aap', 'hum', 'log', 'ek', 'teen', 'raat'
-  ];
-
-  const markerCount = hinglishMarkers.filter(word => lower.includes(word)).length;
-  if (markerCount >= 2) return 'Hindi';
+  const hinglishMarkers = ['mujhe','mera','meri','kya','hai','hain','karna','chahiye','kal','parso','aap','hum','log','ek','teen','raat'];
+  if (hinglishMarkers.filter(w => lower.includes(w)).length >= 2) return 'Hindi';
 
   return 'English';
 }
@@ -400,7 +374,6 @@ function detectPreferredLanguage(text = '') {
 function looksLikeQuestion(text = '') {
   const input = String(text).trim().toLowerCase();
   if (!input) return false;
-
   return (
     input.includes('?') ||
     /^(is|are|do|does|can|could|would|will|what|when|where|why|how|which|who)\b/.test(input)
@@ -409,63 +382,49 @@ function looksLikeQuestion(text = '') {
 
 // ============================================================
 // CORE AI FUNCTION
-// Saves user message → gets history → calls AI → saves reply
 // ============================================================
 async function getSmartReply(phone, hotelId, customerId, userMessage, contextHint = null, responseLanguage = null) {
   try {
-    // Step 1: Save user message to DB
     await saveMessage(phone, hotelId, customerId, 'user', userMessage);
-
-    // Step 2: Get complete history (now includes the message just saved)
     const history = await getHistory(phone, hotelId);
 
-    // Step 3: Build messages for OpenAI
-    // If there's a context hint (e.g. menu selection), inject it
     let messages = [{ role: 'system', content: SYSTEM_PROMPT }];
     const chosenLanguage = responseLanguage || detectPreferredLanguage(userMessage);
 
     messages.push({
       role: 'system',
-      content: `Reply in ${chosenLanguage}. If the user's latest message is in English, do not switch to Hindi or Hinglish. If the user asks to change language, obey their latest request immediately.`
+      content: `Reply in ${chosenLanguage}. If the user's latest message is in English, do not switch to Hindi or Hinglish. If the user asks to change language, obey their latest request immediately.`,
     });
 
     messages.push({
       role: 'system',
-      content: 'Never speak as the customer. Never write replies like "I want to book a room" or any first-person guest statement unless you are explicitly quoting the user. Always reply as the hotel assistant.'
+      content: 'Never speak as the customer. Never write replies like "I want to book a room" or any first-person guest statement. Always reply as the hotel assistant.',
     });
 
     if (looksLikeQuestion(userMessage)) {
       messages.push({
         role: 'system',
-        content: 'The latest user message is a direct question. Answer that question first in a helpful way. Do not switch into booking flow unless the user clearly asks to book after that.'
+        content: 'The latest user message is a direct question. Answer that question first helpfully. Do not switch into booking flow unless the user clearly asks to book after that.',
       });
     }
-    
+
     if (contextHint) {
-      // Add context hint as a system note before history
-      messages.push({
-        role: 'system',
-        content: `[CONTEXT NOTE: ${contextHint}]`
-      });
+      messages.push({ role: 'system', content: `[CONTEXT NOTE: ${contextHint}]` });
     }
-    
+
     messages = [...messages, ...history];
 
-    // Step 4: Call OpenAI
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',           // Using gpt-4o for maximum intelligence
+      model:             'gpt-4o',
       messages,
-      max_tokens: 600,
-      temperature: 0.75,
-      presence_penalty: 0.3,    // Discourages repeating the same phrases
-      frequency_penalty: 0.3    // Discourages repetitive words
+      max_tokens:        600,
+      temperature:       0.75,
+      presence_penalty:  0.3,
+      frequency_penalty: 0.3,
     });
 
     const reply = completion.choices[0].message.content.trim();
-
-    // Step 5: Save AI reply to DB
     await saveMessage(phone, hotelId, customerId, 'assistant', reply);
-
     return reply;
   } catch (err) {
     console.error('❌ getSmartReply error:', err.message);
@@ -474,22 +433,20 @@ async function getSmartReply(phone, hotelId, customerId, userMessage, contextHin
 }
 
 // ============================================================
-// PARSE BOOKING DETAILS FROM CONVERSATION (for auto-save)
+// PARSE & SAVE BOOKING FROM CONVERSATION
 // ============================================================
 async function tryExtractAndSaveBooking(phone, hotelId, customerId, history) {
   try {
-    // Ask AI to extract booking details from conversation
     const extractPrompt = `Look at this conversation and extract booking details if all are present.
 Return ONLY a JSON object with these exact keys, or return null if any detail is missing:
 {
   "guestName": "full name",
   "checkIn": "YYYY-MM-DD",
-  "checkOut": "YYYY-MM-DD", 
+  "checkOut": "YYYY-MM-DD",
   "roomType": "Standard Room / Deluxe Room / Suite",
   "numberOfGuests": 2,
   "numberOfRooms": 1
 }
-
 Return null if any field is missing or unclear.
 Return ONLY the JSON, no explanation.
 
@@ -497,60 +454,51 @@ Conversation:
 ${history.map(m => `${m.role}: ${m.content}`).join('\n')}`;
 
     const extraction = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: extractPrompt }],
-      max_tokens: 200,
-      temperature: 0
+      model:       'gpt-4o-mini',
+      messages:    [{ role: 'user', content: extractPrompt }],
+      max_tokens:  200,
+      temperature: 0,
     });
 
     const raw = extraction.choices[0].message.content.trim();
-    
     if (raw === 'null' || !raw.startsWith('{')) return null;
 
     const details = JSON.parse(raw);
-    
-    if (!details.guestName || !details.checkIn || !details.checkOut || !details.roomType || !details.numberOfGuests) {
-      return null;
-    }
+    if (!details.guestName || !details.checkIn || !details.checkOut || !details.roomType || !details.numberOfGuests) return null;
 
-    // Calculate total amount
-    const roomPrices = { 'Standard Room': 2500, 'Deluxe Room': 4000, 'Suite': 7500 };
+    const roomPrices    = { 'Standard Room': 2500, 'Deluxe Room': 4000, 'Suite': 7500 };
     const pricePerNight = roomPrices[details.roomType] || 2500;
-    const nights = Math.ceil((new Date(details.checkOut) - new Date(details.checkIn)) / (1000 * 60 * 60 * 24));
-    const totalAmount = pricePerNight * nights * (details.numberOfRooms || 1);
+    const nights        = Math.ceil((new Date(details.checkOut) - new Date(details.checkIn)) / (1000 * 60 * 60 * 24));
+    const totalAmount   = pricePerNight * nights * (details.numberOfRooms || 1);
 
-    // Check if booking already exists for this conversation
     const existing = await Booking.findOne({ phone, status: 'pending' }).sort({ createdAt: -1 });
-    
+
     if (existing) {
-      // Update existing pending booking
-      existing.guestName = details.guestName;
-      existing.checkIn = new Date(details.checkIn);
-      existing.checkOut = new Date(details.checkOut);
-      existing.roomType = details.roomType;
-      existing.numberOfGuests = details.numberOfGuests;
-      existing.totalAmount = totalAmount;
+      Object.assign(existing, {
+        guestName:      details.guestName,
+        checkIn:        new Date(details.checkIn),
+        checkOut:       new Date(details.checkOut),
+        roomType:       details.roomType,
+        numberOfGuests: details.numberOfGuests,
+        totalAmount,
+      });
       await existing.save();
       return existing;
     } else {
-      // Create new booking
-      const booking = await Booking.create({
-        hotelId,
-        customerId,
-        guestName: details.guestName,
+      return await Booking.create({
+        hotelId, customerId,
+        guestName:      details.guestName,
         phone,
-        checkIn: new Date(details.checkIn),
-        checkOut: new Date(details.checkOut),
-        roomType: details.roomType,
+        checkIn:        new Date(details.checkIn),
+        checkOut:       new Date(details.checkOut),
+        roomType:       details.roomType,
         numberOfGuests: details.numberOfGuests,
         totalAmount,
-        status: 'pending',
-        source: 'whatsapp'
+        status:  'pending',
+        source:  'whatsapp',
       });
-      return booking;
     }
   } catch (err) {
-    // Silent fail — booking extraction is best-effort
     console.log('ℹ️ Booking extraction skipped:', err.message);
     return null;
   }
@@ -560,10 +508,9 @@ ${history.map(m => `${m.role}: ${m.content}`).join('\n')}`;
 // VERIFY WEBHOOK
 // ============================================================
 router.get('/', (req, res) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
+  const mode      = req.query['hub.mode'];
+  const token     = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-  
   if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
     console.log('✅ Webhook verified');
     return res.status(200).send(challenge);
@@ -572,35 +519,58 @@ router.get('/', (req, res) => {
 });
 
 // ============================================================
-// MAIN WEBHOOK — Clean, smart, no conflicts
+// MAIN WEBHOOK
 // ============================================================
 router.post('/', async (req, res) => {
   // Always respond immediately to Meta
   res.sendStatus(200);
 
   try {
-    const entry = req.body.entry?.[0];
+    const entry   = req.body.entry?.[0];
     const changes = entry?.changes?.[0];
-    const value = changes?.value;
-    const message = value?.messages?.[0];
+    const value   = changes?.value;
 
+    // ✅ FIX 1: Skip status updates (delivered ✓✓, read receipts)
+    if (value?.statuses) return;
+
+    // ✅ FIX 2: Only process if real messages exist
+    if (!value?.messages) return;
+
+    const message = value.messages?.[0];
     if (!message) return;
 
-    const phoneNumberId = value.metadata.phone_number_id;
+    const phoneNumberId = value.metadata?.phone_number_id;
     const customerPhone = message.from;
-    let userMessage = '';
+
+    // ✅ FIX 3: Skip messages sent FROM your own bot number (echo prevention)
+    if (customerPhone === phoneNumberId) return;
+
+    // ✅ FIX 4: Skip stale messages older than 30 seconds
+    const msgTime = parseInt(message.timestamp) * 1000;
+    if (Date.now() - msgTime > 30000) {
+      console.log('⏩ Skipping stale message from', customerPhone);
+      return;
+    }
+
+    // ✅ FIX 5: Handle unsupported message types gracefully
+    if (!['text', 'interactive'].includes(message.type)) {
+      console.log(`⚠️ Unsupported type: ${message.type} from ${customerPhone}`);
+      await sendText(customerPhone, "Sorry, I can only process text messages right now! 😊 Please type your message.", phoneNumberId);
+      return;
+    }
+
+    let userMessage  = '';
     let interactiveId = '';
 
-    // Extract message content
     if (message.type === 'text') {
       userMessage = message.text.body.trim();
     } else if (message.type === 'interactive') {
       if (message.interactive.type === 'button_reply') {
         interactiveId = message.interactive.button_reply.id;
-        userMessage = message.interactive.button_reply.title;
+        userMessage   = message.interactive.button_reply.title;
       } else if (message.interactive.type === 'list_reply') {
         interactiveId = message.interactive.list_reply.id;
-        userMessage = message.interactive.list_reply.title;
+        userMessage   = message.interactive.list_reply.title;
       }
     }
 
@@ -608,23 +578,23 @@ router.post('/', async (req, res) => {
 
     console.log(`📩 [${customerPhone}] "${userMessage}" | id: "${interactiveId}"`);
 
-    // ── Find Hotel ──
+    // ── Find Hotel ──────────────────────────────────────────────
     const hotel = await Hotel.findOne({ whatsappPhoneNumberId: phoneNumberId });
     if (!hotel) {
       console.log('❌ No hotel found for phoneNumberId:', phoneNumberId);
       return;
     }
 
-    // ── Find or Create Customer ──
+    // ── Find or Create Customer ─────────────────────────────────
     const customer = await Customer.findOneAndUpdate(
       { phone: customerPhone, hotelId: hotel._id },
       { lastSeen: new Date() },
       { upsert: true, new: true }
     );
 
-    // ══════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════
     // HANDLER 1: PAYMENT CONFIRMATION
-    // ══════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════
     if (/^(paid|payment done|payment complete|done|completed|pay kar diya|pay ho gaya)/i.test(userMessage)) {
       const booking = await Booking.findOne({ phone: customerPhone, status: 'pending' }).sort({ createdAt: -1 });
 
@@ -632,14 +602,14 @@ router.post('/', async (req, res) => {
         booking.status = 'confirmed';
         await booking.save();
 
-        // Update chat status
         await Chat.findOneAndUpdate(
           { phone: customerPhone, hotelId: hotel._id },
           { status: 'booked' }
         );
 
         const nights = Math.ceil((new Date(booking.checkOut) - new Date(booking.checkIn)) / (1000 * 60 * 60 * 24));
-        const confirmMsg = `🎉 *Booking Confirmed!*
+        const confirmMsg =
+`🎉 *Booking Confirmed!*
 
 ✅ *Name:* ${booking.guestName}
 🛏️ *Room:* ${booking.roomType}
@@ -654,12 +624,11 @@ We look forward to hosting you. See you soon! 😊
 
 _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
 
-        await saveMessage(customerPhone, hotel._id, customer._id, 'user', userMessage);
+        await saveMessage(customerPhone, hotel._id, customer._id, 'user',      userMessage);
         await saveMessage(customerPhone, hotel._id, customer._id, 'assistant', confirmMsg);
         await sendText(customerPhone, confirmMsg, phoneNumberId);
         return;
       } else {
-        // No pending booking found
         const reply = await getSmartReply(
           customerPhone, hotel._id, customer._id, userMessage,
           'Customer said they paid but no pending booking was found. Politely ask them to clarify or start a new booking.',
@@ -670,11 +639,11 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       }
     }
 
-    // ══════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════
     // HANDLER 2: FIRST MESSAGE / GREETING → Show menu
-    // ══════════════════════════════════════════
-    const firstTime = await isFirstMessage(customerPhone, hotel._id);
-    const isGreeting = /^(hi|hii|hiii|hello|hey|helo|hola|good morning|good evening|good afternoon|namaste|namaskar|start|menu)\b/i.test(userMessage);
+    // ══════════════════════════════════════════════════════════
+    const firstTime     = await isFirstMessage(customerPhone, hotel._id);
+    const isGreeting    = /^(hi|hii|hiii|hello|hey|helo|hola|good morning|good evening|good afternoon|namaste|namaskar|start|menu)\b/i.test(userMessage);
     const isMenuRequest = /^(menu|main menu|start|help|options|back to menu)\b/i.test(userMessage);
 
     if ((firstTime && isGreeting) || isMenuRequest) {
@@ -684,11 +653,10 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       return;
     }
 
-    // ══════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════
     // HANDLER 3: INTERACTIVE MENU SELECTIONS
-    // ══════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════
 
-    // -- View Rooms --
     if (interactiveId === 'menu_rooms') {
       await saveMessage(customerPhone, hotel._id, customer._id, 'user', 'I want to see the rooms');
       await sendRoomPhotos(customerPhone, phoneNumberId);
@@ -696,7 +664,6 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       return;
     }
 
-    // -- Book a Room (from menu or photos) --
     if (interactiveId === 'menu_book' || interactiveId === 'photo_book') {
       await saveMessage(customerPhone, hotel._id, customer._id, 'user', 'I want to book a room');
       await sendRoomMenu(customerPhone, phoneNumberId);
@@ -704,7 +671,6 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       return;
     }
 
-    // -- Special Offers --
     if (interactiveId === 'menu_offers') {
       const reply = await getSmartReply(
         customerPhone, hotel._id, customer._id,
@@ -716,7 +682,6 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       return;
     }
 
-    // -- Check-in Timings --
     if (interactiveId === 'menu_checkin') {
       const reply = await getSmartReply(
         customerPhone, hotel._id, customer._id,
@@ -728,7 +693,6 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       return;
     }
 
-    // -- Contact --
     if (interactiveId === 'menu_contact') {
       const reply = await getSmartReply(
         customerPhone, hotel._id, customer._id,
@@ -740,12 +704,11 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       return;
     }
 
-    // -- Room Selected from menu --
     if (['room_standard', 'room_deluxe', 'room_suite'].includes(interactiveId)) {
       const roomLabels = {
         room_standard: 'Standard Room (₹2,500/night)',
-        room_deluxe: 'Deluxe Room (₹4,000/night)',
-        room_suite: 'Suite (₹7,500/night)'
+        room_deluxe:   'Deluxe Room (₹4,000/night)',
+        room_suite:    'Suite (₹7,500/night)',
       };
       const roomChoice = roomLabels[interactiveId];
       const reply = await getSmartReply(
@@ -757,22 +720,20 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       return;
     }
 
-    // -- Ask a Question (from photos) --
     if (interactiveId === 'photo_ask') {
       const questionPrompt = detectPreferredLanguage(userMessage) === 'English'
         ? 'Sure, ask me anything about rooms, pricing, check-in, amenities, or booking.'
         : 'Sure, aap rooms, pricing, check-in, amenities ya booking ke baare mein kuch bhi pooch sakte hain.';
-      await saveMessage(customerPhone, hotel._id, customer._id, 'user', userMessage);
+      await saveMessage(customerPhone, hotel._id, customer._id, 'user',      userMessage);
       await sendText(customerPhone, questionPrompt, phoneNumberId);
       await saveMessage(customerPhone, hotel._id, customer._id, 'assistant', questionPrompt);
       return;
     }
 
-    // ══════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════
     // HANDLER 4: TEXT SHORTCUTS
-    // ══════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════
 
-    // Show rooms via text
     if (/\b(show.*rooms?|rooms?.*photo|see.*rooms?|view.*rooms?|photos?|pictures?|images?)\b/i.test(userMessage)) {
       await saveMessage(customerPhone, hotel._id, customer._id, 'user', userMessage);
       await sendRoomPhotos(customerPhone, phoneNumberId);
@@ -780,7 +741,6 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       return;
     }
 
-    // Payment request via text
     if (/\b(pay|payment|qr|upi|gpay|phonepe|paytm|how.*pay|online.*pay)\b/i.test(userMessage)) {
       await saveMessage(customerPhone, hotel._id, customer._id, 'user', userMessage);
       await sendPaymentQR(customerPhone, phoneNumberId);
@@ -789,25 +749,24 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       return;
     }
 
-    // ══════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════
     // HANDLER 5: ALL OTHER MESSAGES → Smart AI
-    // ══════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════
     const reply = await getSmartReply(customerPhone, hotel._id, customer._id, userMessage);
     await sendText(customerPhone, reply, phoneNumberId);
 
-    // ── Try to auto-save booking if all details collected ──
-    // Run in background, doesn't block response
+    // Auto-save booking in background if all details collected
     getHistory(customerPhone, hotel._id).then(history => {
       tryExtractAndSaveBooking(customerPhone, hotel._id, customer._id, history);
     }).catch(() => {});
 
-    // ── If booking looks complete, offer payment ──
-    const lowerReply = reply.toLowerCase();
-    const bookingComplete = 
-      lowerReply.includes('booking summary') || 
-      lowerReply.includes('total:') || 
-      lowerReply.includes('confirm') && lowerReply.includes('₹');
-      
+    // If booking summary shown → send payment QR after 2 seconds
+    const lowerReply    = reply.toLowerCase();
+    const bookingComplete =
+      lowerReply.includes('booking summary') ||
+      lowerReply.includes('total:') ||
+      (lowerReply.includes('confirm') && lowerReply.includes('₹'));
+
     if (bookingComplete) {
       setTimeout(async () => {
         await sendPaymentQR(customerPhone, phoneNumberId);
