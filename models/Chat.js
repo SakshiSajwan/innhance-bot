@@ -19,7 +19,7 @@ const messageSchema = new mongoose.Schema({
 // Schema for the entire conversation
 const chatSchema = new mongoose.Schema({
   name: { type: String, default: 'New Customer' },
-  phone: { type: String, required: true, unique: true },
+  phone: { type: String, required: true },
   lastMessage: { type: String, default: '' },
   time: { type: String, default: 'Just now' }, // e.g., "2 min ago" or "10:05 AM"
   unread: { type: Number, default: 0 },

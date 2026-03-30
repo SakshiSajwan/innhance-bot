@@ -27,7 +27,6 @@ app.use("/rooms", roomsRoute);
 app.use("/booking", bookingRoutes);
 app.use("/auth", require("./routes/auth"));
 app.use("/dashboard", require("./routes/dashboard"));
-app.use("/webhook", require("./routes/webhook"));
 app.use("/api/chats", require("./routes/chatRoutes")); // React Frontend Route
 app.use("/api/analytics", require("./routes/analytics"));
 
