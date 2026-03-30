@@ -23,6 +23,12 @@ const roomImages = {
 // ============================================================
 const SYSTEM_PROMPT = `You are Inna, the AI receptionist for Innhance Hotels. You are warm, smart, witty, and speak like a real human — not a robot. You handle everything: answering questions, booking rooms, taking payments, and helping guests.
 
+VERY IMPORTANT — WHO YOU ARE:
+- You are the HOTEL ASSISTANT, not the customer
+- You NEVER write from the customer's perspective
+- You NEVER say things like "I want to book a room" or "I am a guest"
+- You always reply AS Inna TO the customer
+
 ═══════════════════════════════════
 HOTEL INFORMATION
 ═══════════════════════════════════
@@ -31,6 +37,13 @@ Rooms & Pricing:
 - Deluxe Room — ₹4,000/night | Spacious with beautiful city views
 - Suite — ₹7,500/night | Ultimate luxury, premium facilities
 - All rooms include FREE breakfast + FREE WiFi
+
+Amenities:
+- The hotel does NOT have a swimming pool
+- Restaurant on-site, 24/7 room service
+- Gym, Spa, Conference room available
+- Free WiFi throughout the property
+- Free parking
 
 Timings:
 - Check-in: 2:00 PM (early check-in on request)
@@ -78,6 +91,15 @@ Once all 6 details are collected, show a beautiful booking summary and ask for c
 After confirmation, tell them the payment QR will be sent and ask them to reply "paid" once done.
 
 ═══════════════════════════════════
+HOW TO HANDLE QUESTIONS
+═══════════════════════════════════
+- If someone asks a question (even mid-booking) — ANSWER IT FIRST, then continue
+- If someone asks about a facility we don't have (like a pool) — politely say we don't have it, then mention what we DO have
+- If someone asks about price — give exact price from the info above
+- Never make up amenities or facilities not listed above
+- Never say "I don't know" — always give the best answer from the hotel info
+
+═══════════════════════════════════
 YOUR PERSONALITY & INTELLIGENCE RULES
 ═══════════════════════════════════
 CONTEXT RULES (MOST IMPORTANT):
@@ -121,9 +143,9 @@ LANGUAGE RULES:
 - If customer writes in French, Spanish, German or any other language — reply in that language
 - For all Indian languages you can use Roman script if customer is using that
 - NEVER switch languages mid-conversation unless customer switches first
-- Keep all prices, room names and hotel info the same — just the language changes
 
 NEVER DO:
+- NEVER write as the customer — you are ALWAYS the hotel assistant
 - Never ask for a detail you already have
 - Never greet again mid-conversation
 - Never say "I'm just an AI" or "I don't have access to"
@@ -250,7 +272,7 @@ async function sendMainMenu(to, phoneNumberId) {
     [{
       title: 'What can we help with?',
       rows: [
-        // ✅ FIX: All titles kept under 24 characters (WhatsApp hard limit)
+        // ✅ All titles kept under 24 characters (WhatsApp hard limit)
         { id: 'menu_book',    title: '🛏️ Book a Room',     description: 'Reserve your perfect stay'   },
         { id: 'menu_rooms',   title: '🏨 Rooms & Photos',   description: 'See all rooms with prices'   },
         { id: 'menu_offers',  title: '🎁 Special Offers',   description: 'Deals & discounts available' },
@@ -265,7 +287,7 @@ async function sendMainMenu(to, phoneNumberId) {
 async function sendRoomMenu(to, phoneNumberId) {
   await sendList(
     to,
-    // ✅ FIX: Moved prices into body text since titles must be ≤24 chars
+    // ✅ Prices in body text — titles kept short for WhatsApp 24-char limit
     '🏨 *Choose your room type:*\n\n• 🛏️ Standard — ₹2,500/night\n• ✨ Deluxe — ₹4,000/night\n• 👑 Suite — ₹7,500/night\n\n✅ All rooms include FREE breakfast & WiFi!',
     [{
       title: 'Available Rooms',
@@ -308,8 +330,11 @@ async function sendPaymentQR(to, phoneNumberId) {
 // DATABASE FUNCTIONS
 // ============================================================
 
-// ✅ FIX: Removed customerId from $setOnInsert — it was also in $set,
-//         causing a MongoDB conflict error on upsert.
+// ✅ FIXED: Removed `customerId` AND `unread` from $setOnInsert.
+//    MongoDB throws a conflict error when the same field appears in
+//    both $setOnInsert and $set/$inc in the same operation.
+//    - customerId → only in $set (updates every time)
+//    - unread     → only in $inc (Mongo initialises missing fields to 0 automatically)
 async function saveMessage(phone, hotelId, customerId, role, content) {
   try {
     const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -318,8 +343,8 @@ async function saveMessage(phone, hotelId, customerId, role, content) {
       {
         $setOnInsert: {
           phone, hotelId,
-          name: 'Guest ' + phone.slice(-4),
-          avatar: 'G', unread: 0,
+          name:   'Guest ' + phone.slice(-4),
+          avatar: 'G',
         },
         $set: {
           customerId,
@@ -337,12 +362,18 @@ async function saveMessage(phone, hotelId, customerId, role, content) {
   }
 }
 
+// ✅ IMPROVED: Filters out all UI placeholders like "[Sent: Room photos]"
+//    so they never pollute the AI's conversation history.
 async function getHistory(phone, hotelId) {
   try {
     const chat = await Chat.findOne({ phone, hotelId });
     if (!chat?.messages?.length) return [];
     return chat.messages
-      .filter(m => typeof m.content === 'string' && !m.content.startsWith('['))
+      .filter(m =>
+        typeof m.content === 'string' &&
+        !m.content.startsWith('[') &&
+        m.content.trim().length > 0
+      )
       .slice(-40)
       .map(m => ({
         role:    m.role === 'assistant' ? 'assistant' : 'user',
@@ -362,8 +393,8 @@ async function isFirstMessage(phone, hotelId) {
 }
 
 function detectPreferredLanguage(text = '') {
-  const input  = String(text).trim();
-  const lower  = input.toLowerCase();
+  const input = String(text).trim();
+  const lower = input.toLowerCase();
   if (!input) return 'English';
 
   if (/\b(english|speak english|reply in english)\b/i.test(lower)) return 'English';
@@ -387,40 +418,66 @@ function looksLikeQuestion(text = '') {
 // ============================================================
 // CORE AI FUNCTION
 // ============================================================
+// ✅ FIXED: System messages now come BEFORE history in the messages array.
+//    Previously history was mixed in with system prompts which confused the model.
+//    Now the order is: [system prompts] → [conversation history] → clean context.
+//
+// ✅ FIXED: Added a strong identity anchor system message so the AI
+//    never drifts into speaking AS the customer.
 async function getSmartReply(phone, hotelId, customerId, userMessage, contextHint = null, responseLanguage = null) {
   try {
     await saveMessage(phone, hotelId, customerId, 'user', userMessage);
     const history = await getHistory(phone, hotelId);
 
-    let messages = [{ role: 'system', content: SYSTEM_PROMPT }];
     const chosenLanguage = responseLanguage || detectPreferredLanguage(userMessage);
 
-    messages.push({
-      role: 'system',
-      content: `Reply in ${chosenLanguage}. If the user's latest message is in English, do not switch to Hindi or Hinglish. If the user asks to change language, obey their latest request immediately.`,
-    });
+    // All system instructions first, then conversation history
+    const systemMessages = [
+      // 1. Core identity + full hotel knowledge
+      { role: 'system', content: SYSTEM_PROMPT },
 
-    messages.push({
-      role: 'system',
-      content: 'Never speak as the customer. Never write replies like "I want to book a room" or any first-person guest statement. Always reply as the hotel assistant.',
-    });
-
-    if (looksLikeQuestion(userMessage)) {
-      messages.push({
+      // 2. Hard identity anchor — stops AI from writing as the customer
+      {
         role: 'system',
-        content: 'The latest user message is a direct question. Answer that question first helpfully. Do not switch into booking flow unless the user clearly asks to book after that.',
-      });
-    }
+        content:
+          'IDENTITY REMINDER: You are Inna, the hotel receptionist. ' +
+          'Every single message you write is FROM you (Inna) TO the customer. ' +
+          'Never produce a reply that reads like the customer is speaking. ' +
+          'Never start with "I want to...", "I would like to...", or any first-person guest phrasing.',
+      },
 
-    if (contextHint) {
-      messages.push({ role: 'system', content: `[CONTEXT NOTE: ${contextHint}]` });
-    }
+      // 3. Language lock
+      {
+        role: 'system',
+        content:
+          `Reply in ${chosenLanguage}. ` +
+          'Stay in this language for the entire reply. ' +
+          'Only switch if the customer explicitly writes in a different language.',
+      },
 
-    messages = [...messages, ...history];
+      // 4. Question-first rule (only injected when needed)
+      ...(looksLikeQuestion(userMessage)
+        ? [{
+            role: 'system',
+            content:
+              'The customer just asked a direct question. ' +
+              'Answer THAT question completely FIRST before doing anything else. ' +
+              'If they asked about something we do not have (e.g. a swimming pool), ' +
+              'honestly say we do not have it, then briefly mention a relevant amenity we do have. ' +
+              'Only return to booking questions AFTER answering.',
+          }]
+        : []),
+
+      // 5. Context hint from specific menu handlers
+      ...(contextHint
+        ? [{ role: 'system', content: `[CONTEXT NOTE: ${contextHint}]` }]
+        : []),
+    ];
 
     const completion = await openai.chat.completions.create({
       model:             'gpt-4o',
-      messages,
+      // ✅ System messages first, THEN the real conversation history
+      messages:          [...systemMessages, ...history],
       max_tokens:        600,
       temperature:       0.75,
       presence_penalty:  0.3,
@@ -534,10 +591,10 @@ router.post('/', async (req, res) => {
     const changes = entry?.changes?.[0];
     const value   = changes?.value;
 
-    // ✅ FIX 1: Skip status updates (delivered ✓✓, read receipts)
+    // Skip status updates (delivered ✓✓, read receipts)
     if (value?.statuses) return;
 
-    // ✅ FIX 2: Only process if real messages exist
+    // Only process if real messages exist
     if (!value?.messages) return;
 
     const message = value.messages?.[0];
@@ -546,17 +603,17 @@ router.post('/', async (req, res) => {
     const phoneNumberId = value.metadata?.phone_number_id;
     const customerPhone = message.from;
 
-    // ✅ FIX 3: Skip messages sent FROM your own bot number (echo prevention)
+    // Skip messages sent FROM your own bot number (echo prevention)
     if (customerPhone === phoneNumberId) return;
 
-    // ✅ FIX 4: Skip stale messages older than 30 seconds
+    // Skip stale messages older than 30 seconds
     const msgTime = parseInt(message.timestamp) * 1000;
     if (Date.now() - msgTime > 30000) {
       console.log('⏩ Skipping stale message from', customerPhone);
       return;
     }
 
-    // ✅ FIX 5: Handle unsupported message types gracefully
+    // Handle unsupported message types gracefully
     if (!['text', 'interactive'].includes(message.type)) {
       console.log(`⚠️ Unsupported type: ${message.type} from ${customerPhone}`);
       await sendText(customerPhone, "Sorry, I can only process text messages right now! 😊 Please type your message.", phoneNumberId);
@@ -590,7 +647,7 @@ router.post('/', async (req, res) => {
     }
 
     // ── Find or Create Customer ─────────────────────────────────
-    // ✅ FIX: Replaced deprecated { new: true } with { returnDocument: 'after' }
+    // ✅ FIXED: Replaced deprecated { new: true } with { returnDocument: 'after' }
     const customer = await Customer.findOneAndUpdate(
       { phone: customerPhone, hotelId: hotel._id },
       { lastSeen: new Date() },
@@ -726,12 +783,13 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
     }
 
     if (interactiveId === 'photo_ask') {
-      const questionPrompt = detectPreferredLanguage(userMessage) === 'English'
-        ? 'Sure, ask me anything about rooms, pricing, check-in, amenities, or booking.'
-        : 'Sure, aap rooms, pricing, check-in, amenities ya booking ke baare mein kuch bhi pooch sakte hain.';
-      await saveMessage(customerPhone, hotel._id, customer._id, 'user',      userMessage);
-      await sendText(customerPhone, questionPrompt, phoneNumberId);
-      await saveMessage(customerPhone, hotel._id, customer._id, 'assistant', questionPrompt);
+      const reply = await getSmartReply(
+        customerPhone, hotel._id, customer._id,
+        'I have a question about the hotel',
+        'Customer clicked Ask a Question. Warmly invite them to ask anything — rooms, pricing, amenities, policies, booking.',
+        detectPreferredLanguage(userMessage)
+      );
+      await sendText(customerPhone, reply, phoneNumberId);
       return;
     }
 
@@ -761,15 +819,15 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
     await sendText(customerPhone, reply, phoneNumberId);
 
     // Auto-save booking in background if all details collected
-    getHistory(customerPhone, hotel._id).then(history => {
-      tryExtractAndSaveBooking(customerPhone, hotel._id, customer._id, history);
+    getHistory(customerPhone, hotel._id).then(hist => {
+      tryExtractAndSaveBooking(customerPhone, hotel._id, customer._id, hist);
     }).catch(() => {});
 
     // If booking summary shown → send payment QR after 2 seconds
-    const lowerReply    = reply.toLowerCase();
+    const lowerReply      = reply.toLowerCase();
     const bookingComplete =
       lowerReply.includes('booking summary') ||
-      lowerReply.includes('total:') ||
+      lowerReply.includes('total:')          ||
       (lowerReply.includes('confirm') && lowerReply.includes('₹'));
 
     if (bookingComplete) {
