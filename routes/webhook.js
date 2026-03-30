@@ -8,15 +8,30 @@ const Customer = require('../models/Customer');
 const Chat     = require('../models/Chat');
 const Booking  = require('../models/Booking');
 
-const openai          = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const WHATSAPP_TOKEN  = process.env.WHATSAPP_TOKEN;
-const PAYMENT_QR_URL  = 'https://i.ibb.co/b5dPnbs1/qr.jpg';
+const openai         = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const PAYMENT_QR_URL = 'https://i.ibb.co/b5dPnbs1/qr.jpg';
 
 const roomImages = {
   standard: 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=800',
   deluxe:   'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=800',
   suite:    'https://images.unsplash.com/photo-1631049552057-403cdb8f0658?w=800',
 };
+
+// ============================================================
+// ROOM CAPACITY RULES
+// Adults = guests aged 13+, Children = under 12 (stay FREE per policy)
+// ============================================================
+const ROOM_CAPACITY = {
+  'Standard Room': { maxAdults: 2, maxTotal: 3 },  // 2 adults + 1 child
+  'Deluxe Room':   { maxAdults: 3, maxTotal: 4 },  // 3 adults + 1 child
+  'Suite':         { maxAdults: 4, maxTotal: 6 },  // 4 adults + 2 children
+};
+
+// ============================================================
+// PAYMENT VERIFICATION CONFIG
+// ============================================================
+const PAYMENT_RECEIVER_NAME = 'Arnav Prabhakar'; // Must match on screenshot
 
 // ============================================================
 // MASTER SYSTEM PROMPT
@@ -37,6 +52,13 @@ Rooms & Pricing:
 - Deluxe Room — ₹4,000/night | Spacious with beautiful city views
 - Suite — ₹7,500/night | Ultimate luxury, premium facilities
 - All rooms include FREE breakfast + FREE WiFi
+
+Room Capacity (VERY IMPORTANT — enforce this during booking):
+- Standard Room: max 2 adults + 1 child (max 3 total)
+- Deluxe Room: max 3 adults + 1 child (max 4 total)
+- Suite: max 4 adults + 2 children (max 6 total)
+- Children under 12 stay FREE and do not count toward adult capacity
+- If a guest exceeds adult capacity for their chosen room, suggest upgrading to a larger room OR booking multiple rooms
 
 Amenities:
 - The hotel does NOT have a swimming pool
@@ -74,7 +96,7 @@ Contact:
 Payment:
 - Online: UPI/QR code (we send the QR, customer scans and pays)
 - At hotel: Cash, Credit/Debit cards
-- After paying online, customer replies "paid" to confirm
+- After paying online, customer must send a SCREENSHOT of the payment for verification
 
 ═══════════════════════════════════
 BOOKING FLOW
@@ -84,11 +106,16 @@ When a customer wants to book, collect these ONE BY ONE naturally:
 2. Check-in date (DD/MM/YYYY)
 3. Check-out date (DD/MM/YYYY)
 4. Number of rooms
-5. Number of guests
+5. Number of guests (ask how many are adults and how many are children separately if total seems high)
 6. Room type (if not already chosen)
 
-Once all 6 details are collected, show a beautiful booking summary and ask for confirmation.
-After confirmation, tell them the payment QR will be sent and ask them to reply "paid" once done.
+CAPACITY CHECK (do this before showing the summary):
+- If the number of adults exceeds the room's adult limit, DO NOT just silently accept it
+- Politely explain the capacity limit and suggest: upgrade to a bigger room OR book an additional room
+- Example: "Our Deluxe Room fits up to 3 adults. For 4 adults I'd suggest either our Suite or booking 2 Deluxe rooms — which works better for you? 😊"
+
+Once all details are confirmed AND capacity is valid, show a beautiful booking summary and ask for confirmation.
+After confirmation, send the QR code and ask the customer to send a SCREENSHOT of the payment (not just "paid").
 
 ═══════════════════════════════════
 HOW TO HANDLE QUESTIONS
@@ -97,7 +124,6 @@ HOW TO HANDLE QUESTIONS
 - If someone asks about a facility we don't have (like a pool) — politely say we don't have it, then mention what we DO have
 - If someone asks about price — give exact price from the info above
 - Never make up amenities or facilities not listed above
-- Never say "I don't know" — always give the best answer from the hotel info
 
 ═══════════════════════════════════
 YOUR PERSONALITY & INTELLIGENCE RULES
@@ -123,24 +149,12 @@ SMART BEHAVIOUR:
 - If someone says "deluxe" after being asked room type — understand it's the room choice
 - If someone gives their name when asked — move to the NEXT question immediately
 - If someone asks a general question mid-booking — answer it and then continue booking
-- If someone seems confused — gently guide them
-- If someone is rude or frustrated — be extra polite and helpful
 - Always move the conversation FORWARD — never get stuck
 
 LANGUAGE RULES:
 - Detect the language the customer is writing in and ALWAYS reply in the SAME language
 - If customer writes in Hindi — reply in Hindi
 - If customer writes in Hinglish — reply in Hinglish
-- If customer writes in Gujarati — reply in Gujarati
-- If customer writes in Marathi — reply in Marathi
-- If customer writes in Tamil — reply in Tamil
-- If customer writes in Telugu — reply in Telugu
-- If customer writes in Bengali — reply in Bengali
-- If customer writes in Kannada — reply in Kannada
-- If customer writes in Punjabi — reply in Punjabi
-- If customer writes in Malayalam — reply in Malayalam
-- If customer writes in Arabic — reply in Arabic
-- If customer writes in French, Spanish, German or any other language — reply in that language
 - For all Indian languages you can use Roman script if customer is using that
 - NEVER switch languages mid-conversation unless customer switches first
 
@@ -150,8 +164,7 @@ NEVER DO:
 - Never greet again mid-conversation
 - Never say "I'm just an AI" or "I don't have access to"
 - Never make up prices or policies not listed above
-- Never send the same message twice
-- Never ask "How can I help you?" when you already know what they want`;
+- Never send the same message twice`;
 
 // ============================================================
 // WHATSAPP SEND FUNCTIONS
@@ -161,18 +174,8 @@ async function sendText(to, message, phoneNumberId) {
   try {
     await axios.post(
       `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
-      {
-        messaging_product: 'whatsapp',
-        to,
-        type: 'text',
-        text: { body: message },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-      }
+      { messaging_product: 'whatsapp', to, type: 'text', text: { body: message } },
+      { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}`, 'Content-Type': 'application/json' } }
     );
   } catch (err) {
     console.error('❌ sendText error:', err.response?.data || err.message);
@@ -183,18 +186,8 @@ async function sendImage(to, imageUrl, caption, phoneNumberId) {
   try {
     await axios.post(
       `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
-      {
-        messaging_product: 'whatsapp',
-        to,
-        type: 'image',
-        image: { link: imageUrl, caption },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-      }
+      { messaging_product: 'whatsapp', to, type: 'image', image: { link: imageUrl, caption } },
+      { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}`, 'Content-Type': 'application/json' } }
     );
   } catch (err) {
     console.error('❌ sendImage error:', err.response?.data || err.message);
@@ -206,26 +199,13 @@ async function sendButtons(to, bodyText, buttons, phoneNumberId) {
     await axios.post(
       `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
       {
-        messaging_product: 'whatsapp',
-        to,
-        type: 'interactive',
+        messaging_product: 'whatsapp', to, type: 'interactive',
         interactive: {
-          type: 'button',
-          body: { text: bodyText },
-          action: {
-            buttons: buttons.map(btn => ({
-              type: 'reply',
-              reply: { id: btn.id, title: btn.title },
-            })),
-          },
+          type: 'button', body: { text: bodyText },
+          action: { buttons: buttons.map(btn => ({ type: 'reply', reply: { id: btn.id, title: btn.title } })) },
         },
       },
-      {
-        headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-      }
+      { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}`, 'Content-Type': 'application/json' } }
     );
   } catch (err) {
     console.error('❌ sendButtons error:', err.response?.data || err.message);
@@ -237,27 +217,105 @@ async function sendList(to, bodyText, sections, phoneNumberId) {
     await axios.post(
       `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
       {
-        messaging_product: 'whatsapp',
-        to,
-        type: 'interactive',
+        messaging_product: 'whatsapp', to, type: 'interactive',
         interactive: {
-          type: 'list',
-          body: { text: bodyText },
-          action: {
-            button: '👇 View Options',
-            sections,
-          },
+          type: 'list', body: { text: bodyText },
+          action: { button: '👇 View Options', sections },
         },
       },
-      {
-        headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-      }
+      { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}`, 'Content-Type': 'application/json' } }
     );
   } catch (err) {
     console.error('❌ sendList error:', err.response?.data || err.message);
+  }
+}
+
+// ============================================================
+// FETCH WHATSAPP MEDIA AS BASE64
+// Used to download payment screenshots sent by the customer
+// ============================================================
+async function fetchWhatsAppMediaAsBase64(mediaId) {
+  try {
+    // Step 1: Get the media URL from WhatsApp
+    const mediaRes = await axios.get(
+      `https://graph.facebook.com/v18.0/${mediaId}`,
+      { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+    );
+    const mediaUrl = mediaRes.data.url;
+
+    // Step 2: Download the actual image bytes
+    const imageRes = await axios.get(mediaUrl, {
+      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+      responseType: 'arraybuffer',
+    });
+
+    const base64 = Buffer.from(imageRes.data, 'binary').toString('base64');
+    const mimeType = imageRes.headers['content-type'] || 'image/jpeg';
+    return { base64, mimeType };
+  } catch (err) {
+    console.error('❌ fetchWhatsAppMediaAsBase64 error:', err.message);
+    return null;
+  }
+}
+
+// ============================================================
+// VERIFY PAYMENT SCREENSHOT USING GPT-4o VISION
+// Checks: receiver name, amount paid, transaction date
+// ============================================================
+async function verifyPaymentScreenshot(base64Image, mimeType, expectedAmount, expectedName) {
+  try {
+    const prompt = `You are a payment verification assistant. Carefully examine this payment screenshot.
+
+Extract and return ONLY a JSON object with these fields:
+{
+  "receiverName": "name shown as receiver/payee on the screenshot",
+  "amountPaid": 1234,
+  "transactionDate": "DD/MM/YYYY or null if not visible",
+  "transactionId": "transaction ID or null if not visible",
+  "isSuccessful": true or false
+}
+
+Rules:
+- receiverName: exact name shown on the screenshot as the payment receiver
+- amountPaid: the numeric amount (no currency symbol, just the number)
+- isSuccessful: true only if the screenshot clearly shows a successful/completed payment
+- Return ONLY the JSON, no extra text`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}`, detail: 'high' } },
+          ],
+        },
+      ],
+      max_tokens: 300,
+      temperature: 0,
+    });
+
+    const raw = response.choices[0].message.content.trim().replace(/```json|```/g, '');
+    const data = JSON.parse(raw);
+
+    // Verification checks
+    const nameMatch   = data.receiverName?.toLowerCase().includes(PAYMENT_RECEIVER_NAME.toLowerCase());
+    const amountMatch = Math.abs(data.amountPaid - expectedAmount) <= 1; // allow ₹1 rounding tolerance
+    const isSuccess   = data.isSuccessful === true;
+
+    return {
+      verified:        nameMatch && amountMatch && isSuccess,
+      nameMatch,
+      amountMatch,
+      isSuccess,
+      extracted:       data,
+      expectedAmount,
+      expectedName:    PAYMENT_RECEIVER_NAME,
+    };
+  } catch (err) {
+    console.error('❌ verifyPaymentScreenshot error:', err.message);
+    return { verified: false, error: err.message };
   }
 }
 
@@ -272,7 +330,6 @@ async function sendMainMenu(to, phoneNumberId) {
     [{
       title: 'What can we help with?',
       rows: [
-        // ✅ All titles kept under 24 characters (WhatsApp hard limit)
         { id: 'menu_book',    title: '🛏️ Book a Room',     description: 'Reserve your perfect stay'   },
         { id: 'menu_rooms',   title: '🏨 Rooms & Photos',   description: 'See all rooms with prices'   },
         { id: 'menu_offers',  title: '🎁 Special Offers',   description: 'Deals & discounts available' },
@@ -287,14 +344,13 @@ async function sendMainMenu(to, phoneNumberId) {
 async function sendRoomMenu(to, phoneNumberId) {
   await sendList(
     to,
-    // ✅ Prices in body text — titles kept short for WhatsApp 24-char limit
-    '🏨 *Choose your room type:*\n\n• 🛏️ Standard — ₹2,500/night\n• ✨ Deluxe — ₹4,000/night\n• 👑 Suite — ₹7,500/night\n\n✅ All rooms include FREE breakfast & WiFi!',
+    '🏨 *Choose your room type:*\n\n• 🛏️ Standard — ₹2,500/night (max 2 adults)\n• ✨ Deluxe — ₹4,000/night (max 3 adults)\n• 👑 Suite — ₹7,500/night (max 4 adults)\n\n✅ All rooms include FREE breakfast & WiFi!\n👶 Children under 12 stay FREE!',
     [{
       title: 'Available Rooms',
       rows: [
-        { id: 'room_standard', title: '🛏️ Standard Room', description: '₹2,500/night — Cozy & comfortable'  },
-        { id: 'room_deluxe',   title: '✨ Deluxe Room',   description: '₹4,000/night — Beautiful city views' },
-        { id: 'room_suite',    title: '👑 Suite',          description: '₹7,500/night — Ultimate luxury'      },
+        { id: 'room_standard', title: '🛏️ Standard Room', description: '₹2,500/night — max 2 adults'        },
+        { id: 'room_deluxe',   title: '✨ Deluxe Room',   description: '₹4,000/night — max 3 adults'        },
+        { id: 'room_suite',    title: '👑 Suite',          description: '₹7,500/night — max 4 adults'        },
       ],
     }],
     phoneNumberId
@@ -303,25 +359,25 @@ async function sendRoomMenu(to, phoneNumberId) {
 
 async function sendRoomPhotos(to, phoneNumberId) {
   await sendText(to, "📸 *Here's a look at our beautiful rooms!* 😍", phoneNumberId);
-  await sendImage(to, roomImages.standard, '🛏️ *Standard Room* — ₹2,500/night\nCozy & comfortable | Free breakfast & WiFi ✅', phoneNumberId);
-  await sendImage(to, roomImages.deluxe,   '✨ *Deluxe Room* — ₹4,000/night\nSpacious with stunning city views | Free breakfast & WiFi ✅', phoneNumberId);
-  await sendImage(to, roomImages.suite,    '👑 *Suite* — ₹7,500/night\nUltimate luxury experience | Free breakfast & WiFi ✅', phoneNumberId);
+  await sendImage(to, roomImages.standard, '🛏️ *Standard Room* — ₹2,500/night\nMax 2 adults | Free breakfast & WiFi ✅', phoneNumberId);
+  await sendImage(to, roomImages.deluxe,   '✨ *Deluxe Room* — ₹4,000/night\nMax 3 adults | Free breakfast & WiFi ✅', phoneNumberId);
+  await sendImage(to, roomImages.suite,    '👑 *Suite* — ₹7,500/night\nMax 4 adults | Free breakfast & WiFi ✅', phoneNumberId);
   await sendButtons(
     to,
     'Which room would you like to book? 😊',
     [
-      { id: 'photo_book', title: '🛏️ Book a Room' },
-      { id: 'photo_ask',  title: '❓ Ask a Question' },
+      { id: 'photo_book', title: '🛏️ Book a Room'    },
+      { id: 'photo_ask',  title: '❓ Ask a Question'  },
     ],
     phoneNumberId
   );
 }
 
-async function sendPaymentQR(to, phoneNumberId) {
+async function sendPaymentQR(to, phoneNumberId, totalAmount) {
   await sendImage(
     to,
     PAYMENT_QR_URL,
-    '💳 *Scan to Pay Online*\n\nOnce payment is done, reply *paid* to confirm your booking instantly! ✅',
+    `💳 *Scan to Pay ₹${totalAmount?.toLocaleString()} Online*\n\nPay to: *${PAYMENT_RECEIVER_NAME}*\n\nOnce done, please *send a screenshot* of the successful payment for verification! 📸`,
     phoneNumberId
   );
 }
@@ -330,11 +386,6 @@ async function sendPaymentQR(to, phoneNumberId) {
 // DATABASE FUNCTIONS
 // ============================================================
 
-// ✅ FIXED: Removed `customerId` AND `unread` from $setOnInsert.
-//    MongoDB throws a conflict error when the same field appears in
-//    both $setOnInsert and $set/$inc in the same operation.
-//    - customerId → only in $set (updates every time)
-//    - unread     → only in $inc (Mongo initialises missing fields to 0 automatically)
 async function saveMessage(phone, hotelId, customerId, role, content) {
   try {
     const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -362,8 +413,6 @@ async function saveMessage(phone, hotelId, customerId, role, content) {
   }
 }
 
-// ✅ IMPROVED: Filters out all UI placeholders like "[Sent: Room photos]"
-//    so they never pollute the AI's conversation history.
 async function getHistory(phone, hotelId) {
   try {
     const chat = await Chat.findOne({ phone, hotelId });
@@ -396,13 +445,10 @@ function detectPreferredLanguage(text = '') {
   const input = String(text).trim();
   const lower = input.toLowerCase();
   if (!input) return 'English';
-
   if (/\b(english|speak english|reply in english)\b/i.test(lower)) return 'English';
   if (/\b(hindi|hindi me|reply in hindi)\b/i.test(lower) || /[\u0900-\u097F]/.test(input)) return 'Hindi';
-
   const hinglishMarkers = ['mujhe','mera','meri','kya','hai','hain','karna','chahiye','kal','parso','aap','hum','log','ek','teen','raat'];
   if (hinglishMarkers.filter(w => lower.includes(w)).length >= 2) return 'Hindi';
-
   return 'English';
 }
 
@@ -416,14 +462,46 @@ function looksLikeQuestion(text = '') {
 }
 
 // ============================================================
+// CAPACITY VALIDATION
+// Returns { valid, message } — call before confirming booking
+// ============================================================
+function validateCapacity(roomType, numberOfGuests, numberOfRooms, adultsCount, childrenCount) {
+  const capacity = ROOM_CAPACITY[roomType];
+  if (!capacity) return { valid: true }; // unknown room type, skip check
+
+  const rooms      = numberOfRooms || 1;
+  const adults     = adultsCount   || numberOfGuests; // fallback if not split
+  const totalCap   = capacity.maxTotal  * rooms;
+  const adultCap   = capacity.maxAdults * rooms;
+
+  if (adults > adultCap) {
+    return {
+      valid: false,
+      reason: 'adults',
+      message:
+        `Our ${roomType} fits up to ${capacity.maxAdults} adult${capacity.maxAdults > 1 ? 's' : ''} per room. ` +
+        `For ${adults} adults you'd need either ${Math.ceil(adults / capacity.maxAdults)} rooms or our ` +
+        `${adults <= ROOM_CAPACITY['Suite'].maxAdults ? 'Suite' : 'Suite + extra room'}. ` +
+        `Which works better for you? 😊`,
+    };
+  }
+
+  if (adultsCount + childrenCount > totalCap) {
+    return {
+      valid: false,
+      reason: 'total',
+      message:
+        `Our ${roomType} can accommodate up to ${capacity.maxTotal} guests (adults + children) per room. ` +
+        `Would you like to upgrade to a larger room or add another room? 😊`,
+    };
+  }
+
+  return { valid: true };
+}
+
+// ============================================================
 // CORE AI FUNCTION
 // ============================================================
-// ✅ FIXED: System messages now come BEFORE history in the messages array.
-//    Previously history was mixed in with system prompts which confused the model.
-//    Now the order is: [system prompts] → [conversation history] → clean context.
-//
-// ✅ FIXED: Added a strong identity anchor system message so the AI
-//    never drifts into speaking AS the customer.
 async function getSmartReply(phone, hotelId, customerId, userMessage, contextHint = null, responseLanguage = null) {
   try {
     await saveMessage(phone, hotelId, customerId, 'user', userMessage);
@@ -431,52 +509,36 @@ async function getSmartReply(phone, hotelId, customerId, userMessage, contextHin
 
     const chosenLanguage = responseLanguage || detectPreferredLanguage(userMessage);
 
-    // All system instructions first, then conversation history
     const systemMessages = [
-      // 1. Core identity + full hotel knowledge
       { role: 'system', content: SYSTEM_PROMPT },
-
-      // 2. Hard identity anchor — stops AI from writing as the customer
       {
         role: 'system',
         content:
           'IDENTITY REMINDER: You are Inna, the hotel receptionist. ' +
-          'Every single message you write is FROM you (Inna) TO the customer. ' +
+          'Every message you write is FROM you (Inna) TO the customer. ' +
           'Never produce a reply that reads like the customer is speaking. ' +
           'Never start with "I want to...", "I would like to...", or any first-person guest phrasing.',
       },
-
-      // 3. Language lock
       {
         role: 'system',
         content:
-          `Reply in ${chosenLanguage}. ` +
-          'Stay in this language for the entire reply. ' +
+          `Reply in ${chosenLanguage}. Stay in this language. ` +
           'Only switch if the customer explicitly writes in a different language.',
       },
-
-      // 4. Question-first rule (only injected when needed)
       ...(looksLikeQuestion(userMessage)
         ? [{
             role: 'system',
             content:
-              'The customer just asked a direct question. ' +
-              'Answer THAT question completely FIRST before doing anything else. ' +
-              'If they asked about something we do not have (e.g. a swimming pool), ' +
-              'honestly say we do not have it, then briefly mention a relevant amenity we do have. ' +
+              'The customer just asked a direct question. Answer it completely FIRST. ' +
+              'If they asked about something we do not have, honestly say so and mention a relevant alternative. ' +
               'Only return to booking questions AFTER answering.',
           }]
         : []),
-
-      // 5. Context hint from specific menu handlers
-      ...(contextHint
-        ? [{ role: 'system', content: `[CONTEXT NOTE: ${contextHint}]` }]
-        : []),
+      ...(contextHint ? [{ role: 'system', content: `[CONTEXT NOTE: ${contextHint}]` }] : []),
     ];
 
     const completion = await openai.chat.completions.create({
       model:             'gpt-4o',
-      // ✅ System messages first, THEN the real conversation history
       messages:          [...systemMessages, ...history],
       max_tokens:        600,
       temperature:       0.75,
@@ -506,9 +568,14 @@ Return ONLY a JSON object with these exact keys, or return null if any detail is
   "checkOut": "YYYY-MM-DD",
   "roomType": "Standard Room / Deluxe Room / Suite",
   "numberOfGuests": 2,
-  "numberOfRooms": 1
+  "numberOfRooms": 1,
+  "adultsCount": 2,
+  "childrenCount": 0
 }
-Return null if any field is missing or unclear.
+- adultsCount: number of guests aged 13 or above
+- childrenCount: number of guests under 12
+- If not mentioned separately, set adultsCount = numberOfGuests and childrenCount = 0
+Return null if guestName, checkIn, checkOut, or roomType is missing.
 Return ONLY the JSON, no explanation.
 
 Conversation:
@@ -517,15 +584,28 @@ ${history.map(m => `${m.role}: ${m.content}`).join('\n')}`;
     const extraction = await openai.chat.completions.create({
       model:       'gpt-4o-mini',
       messages:    [{ role: 'user', content: extractPrompt }],
-      max_tokens:  200,
+      max_tokens:  250,
       temperature: 0,
     });
 
-    const raw = extraction.choices[0].message.content.trim();
+    const raw = extraction.choices[0].message.content.trim().replace(/```json|```/g, '');
     if (raw === 'null' || !raw.startsWith('{')) return null;
 
     const details = JSON.parse(raw);
-    if (!details.guestName || !details.checkIn || !details.checkOut || !details.roomType || !details.numberOfGuests) return null;
+    if (!details.guestName || !details.checkIn || !details.checkOut || !details.roomType) return null;
+
+    // Capacity check before saving
+    const capacityCheck = validateCapacity(
+      details.roomType,
+      details.numberOfGuests,
+      details.numberOfRooms,
+      details.adultsCount || details.numberOfGuests,
+      details.childrenCount || 0
+    );
+    if (!capacityCheck.valid) {
+      console.log('⚠️ Capacity exceeded — booking not saved yet:', capacityCheck.message);
+      return null;
+    }
 
     const roomPrices    = { 'Standard Room': 2500, 'Deluxe Room': 4000, 'Suite': 7500 };
     const pricePerNight = roomPrices[details.roomType] || 2500;
@@ -583,7 +663,6 @@ router.get('/', (req, res) => {
 // MAIN WEBHOOK
 // ============================================================
 router.post('/', async (req, res) => {
-  // Always respond immediately to Meta
   res.sendStatus(200);
 
   try {
@@ -591,10 +670,7 @@ router.post('/', async (req, res) => {
     const changes = entry?.changes?.[0];
     const value   = changes?.value;
 
-    // Skip status updates (delivered ✓✓, read receipts)
     if (value?.statuses) return;
-
-    // Only process if real messages exist
     if (!value?.messages) return;
 
     const message = value.messages?.[0];
@@ -603,20 +679,126 @@ router.post('/', async (req, res) => {
     const phoneNumberId = value.metadata?.phone_number_id;
     const customerPhone = message.from;
 
-    // Skip messages sent FROM your own bot number (echo prevention)
     if (customerPhone === phoneNumberId) return;
 
-    // Skip stale messages older than 30 seconds
     const msgTime = parseInt(message.timestamp) * 1000;
     if (Date.now() - msgTime > 30000) {
       console.log('⏩ Skipping stale message from', customerPhone);
       return;
     }
 
-    // Handle unsupported message types gracefully
+    // ── Find Hotel ──────────────────────────────────────────
+    const hotel = await Hotel.findOne({ whatsappPhoneNumberId: phoneNumberId });
+    if (!hotel) {
+      console.log('❌ No hotel found for phoneNumberId:', phoneNumberId);
+      return;
+    }
+
+    // ── Find or Create Customer ─────────────────────────────
+    const customer = await Customer.findOneAndUpdate(
+      { phone: customerPhone, hotelId: hotel._id },
+      { lastSeen: new Date() },
+      { upsert: true, returnDocument: 'after' }
+    );
+
+    // ══════════════════════════════════════════════════════
+    // HANDLER: PAYMENT SCREENSHOT (image message)
+    // Customer sends a photo — we verify it with GPT-4o vision
+    // ══════════════════════════════════════════════════════
+    if (message.type === 'image') {
+      const mediaId = message.image?.id;
+      if (!mediaId) {
+        await sendText(customerPhone, "I couldn't read that image. Please try sending the screenshot again! 📸", phoneNumberId);
+        return;
+      }
+
+      // Find the pending booking for this customer
+      const booking = await Booking.findOne({ phone: customerPhone, status: 'pending' }).sort({ createdAt: -1 });
+      if (!booking) {
+        await sendText(
+          customerPhone,
+          "I don't see a pending booking to verify payment for. Would you like to make a booking? 😊",
+          phoneNumberId
+        );
+        return;
+      }
+
+      await sendText(customerPhone, '🔍 Verifying your payment screenshot, please wait a moment...', phoneNumberId);
+
+      const media = await fetchWhatsAppMediaAsBase64(mediaId);
+      if (!media) {
+        await sendText(customerPhone, "Sorry, I couldn't download your screenshot. Please try sending it again! 📸", phoneNumberId);
+        return;
+      }
+
+      const result = await verifyPaymentScreenshot(
+        media.base64,
+        media.mimeType,
+        booking.totalAmount,
+        PAYMENT_RECEIVER_NAME
+      );
+
+      console.log('💳 Payment verification result:', JSON.stringify(result));
+
+      if (result.verified) {
+        // ✅ Payment verified — confirm the booking
+        booking.status = 'confirmed';
+        await booking.save();
+
+        await Chat.findOneAndUpdate(
+          { phone: customerPhone, hotelId: hotel._id },
+          { status: 'booked' }
+        );
+
+        const nights = Math.ceil((new Date(booking.checkOut) - new Date(booking.checkIn)) / (1000 * 60 * 60 * 24));
+        const confirmMsg =
+`🎉 *Payment Verified & Booking Confirmed!*
+
+✅ *Name:* ${booking.guestName}
+🛏️ *Room:* ${booking.roomType}
+📅 *Check-in:* ${new Date(booking.checkIn).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+📅 *Check-out:* ${new Date(booking.checkOut).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+🌙 *Nights:* ${nights}
+👥 *Guests:* ${booking.numberOfGuests}
+💰 *Amount Paid:* ₹${booking.totalAmount?.toLocaleString()}
+
+Thank you for choosing *Innhance Hotels!* 🏨
+We look forward to hosting you. See you soon! 😊
+
+_Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
+
+        await saveMessage(customerPhone, hotel._id, customer._id, 'user',      '[Sent: Payment screenshot]');
+        await saveMessage(customerPhone, hotel._id, customer._id, 'assistant', confirmMsg);
+        await sendText(customerPhone, confirmMsg, phoneNumberId);
+
+      } else {
+        // ❌ Payment not verified — tell customer exactly what failed
+        let failReason = '';
+
+        if (!result.isSuccess) {
+          failReason = "The screenshot doesn't show a successful payment. Please make sure the payment went through and send the success confirmation screenshot. 🙏";
+        } else if (!result.nameMatch) {
+          failReason = `The payment receiver name on the screenshot doesn't match. Please pay to *${PAYMENT_RECEIVER_NAME}* and send the screenshot again. 🙏`;
+        } else if (!result.amountMatch) {
+          const paid    = result.extracted?.amountPaid;
+          const needed  = result.expectedAmount;
+          failReason = `The amount on the screenshot (₹${paid}) doesn't match the booking total of ₹${needed}. Please check and send the correct payment screenshot. 🙏`;
+        } else {
+          failReason = "I couldn't verify the payment from this screenshot. Please send a clearer screenshot of the successful payment. 🙏";
+        }
+
+        await saveMessage(customerPhone, hotel._id, customer._id, 'user',      '[Sent: Payment screenshot]');
+        await saveMessage(customerPhone, hotel._id, customer._id, 'assistant', `❌ ${failReason}`);
+        await sendText(customerPhone, `❌ ${failReason}`, phoneNumberId);
+      }
+
+      return;
+    }
+
+    // ── For all non-image messages, only accept text and interactive ──
     if (!['text', 'interactive'].includes(message.type)) {
       console.log(`⚠️ Unsupported type: ${message.type} from ${customerPhone}`);
-      await sendText(customerPhone, "Sorry, I can only process text messages right now! 😊 Please type your message.", phoneNumberId);
+      await sendText(customerPhone, "Sorry, I can only process text messages and images right now! 😊", phoneNumberId);
       return;
     }
 
@@ -639,71 +821,30 @@ router.post('/', async (req, res) => {
 
     console.log(`📩 [${customerPhone}] "${userMessage}" | id: "${interactiveId}"`);
 
-    // ── Find Hotel ──────────────────────────────────────────────
-    const hotel = await Hotel.findOne({ whatsappPhoneNumberId: phoneNumberId });
-    if (!hotel) {
-      console.log('❌ No hotel found for phoneNumberId:', phoneNumberId);
-      return;
-    }
-
-    // ── Find or Create Customer ─────────────────────────────────
-    // ✅ FIXED: Replaced deprecated { new: true } with { returnDocument: 'after' }
-    const customer = await Customer.findOneAndUpdate(
-      { phone: customerPhone, hotelId: hotel._id },
-      { lastSeen: new Date() },
-      { upsert: true, returnDocument: 'after' }
-    );
-
-    // ══════════════════════════════════════════════════════════
-    // HANDLER 1: PAYMENT CONFIRMATION
-    // ══════════════════════════════════════════════════════════
-    if (/^(paid|payment done|payment complete|done|completed|pay kar diya|pay ho gaya)/i.test(userMessage)) {
+    // ══════════════════════════════════════════════════════
+    // HANDLER 1: LEGACY TEXT "paid" — redirect to screenshot
+    // ══════════════════════════════════════════════════════
+    if (/^(paid|payment done|payment complete|pay kar diya|pay ho gaya)/i.test(userMessage)) {
       const booking = await Booking.findOne({ phone: customerPhone, status: 'pending' }).sort({ createdAt: -1 });
-
       if (booking) {
-        booking.status = 'confirmed';
-        await booking.save();
-
-        await Chat.findOneAndUpdate(
-          { phone: customerPhone, hotelId: hotel._id },
-          { status: 'booked' }
-        );
-
-        const nights = Math.ceil((new Date(booking.checkOut) - new Date(booking.checkIn)) / (1000 * 60 * 60 * 24));
-        const confirmMsg =
-`🎉 *Booking Confirmed!*
-
-✅ *Name:* ${booking.guestName}
-🛏️ *Room:* ${booking.roomType}
-📅 *Check-in:* ${new Date(booking.checkIn).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
-📅 *Check-out:* ${new Date(booking.checkOut).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
-🌙 *Nights:* ${nights}
-👥 *Guests:* ${booking.numberOfGuests}
-💰 *Total Paid:* ₹${booking.totalAmount?.toLocaleString()}
-
-Thank you for choosing *Innhance Hotels!* 🏨
-We look forward to hosting you. See you soon! 😊
-
-_Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
-
-        await saveMessage(customerPhone, hotel._id, customer._id, 'user',      userMessage);
-        await saveMessage(customerPhone, hotel._id, customer._id, 'assistant', confirmMsg);
-        await sendText(customerPhone, confirmMsg, phoneNumberId);
-        return;
+        await saveMessage(customerPhone, hotel._id, customer._id, 'user', userMessage);
+        const msg = `📸 Please send a *screenshot* of your successful payment so I can verify and confirm your booking instantly!\n\nMake sure the screenshot shows:\n✅ Payment successful status\n✅ Receiver name: *${PAYMENT_RECEIVER_NAME}*\n✅ Amount: ₹${booking.totalAmount?.toLocaleString()}`;
+        await saveMessage(customerPhone, hotel._id, customer._id, 'assistant', msg);
+        await sendText(customerPhone, msg, phoneNumberId);
       } else {
         const reply = await getSmartReply(
           customerPhone, hotel._id, customer._id, userMessage,
-          'Customer said they paid but no pending booking was found. Politely ask them to clarify or start a new booking.',
+          'Customer said they paid but no pending booking found. Ask them to clarify or start a new booking.',
           detectPreferredLanguage(userMessage)
         );
         await sendText(customerPhone, reply, phoneNumberId);
-        return;
       }
+      return;
     }
 
-    // ══════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════
     // HANDLER 2: FIRST MESSAGE / GREETING → Show menu
-    // ══════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════
     const firstTime     = await isFirstMessage(customerPhone, hotel._id);
     const isGreeting    = /^(hi|hii|hiii|hello|hey|helo|hola|good morning|good evening|good afternoon|namaste|namaskar|start|menu)\b/i.test(userMessage);
     const isMenuRequest = /^(menu|main menu|start|help|options|back to menu)\b/i.test(userMessage);
@@ -715,9 +856,9 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       return;
     }
 
-    // ══════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════
     // HANDLER 3: INTERACTIVE MENU SELECTIONS
-    // ══════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════
 
     if (interactiveId === 'menu_rooms') {
       await saveMessage(customerPhone, hotel._id, customer._id, 'user', 'I want to see the rooms');
@@ -737,7 +878,7 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       const reply = await getSmartReply(
         customerPhone, hotel._id, customer._id,
         'What special offers and deals do you have?',
-        'Customer clicked on Special Offers from the menu. Tell them about all current deals warmly.',
+        'Customer clicked on Special Offers. Tell them about all current deals warmly.',
         detectPreferredLanguage(userMessage)
       );
       await sendText(customerPhone, reply, phoneNumberId);
@@ -748,7 +889,7 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       const reply = await getSmartReply(
         customerPhone, hotel._id, customer._id,
         'What are the check-in and check-out timings and cancellation policy?',
-        'Customer clicked on Timings & Policies from the menu. Give them all timing info clearly.',
+        'Customer clicked on Timings & Policies. Give all timing info clearly.',
         detectPreferredLanguage(userMessage)
       );
       await sendText(customerPhone, reply, phoneNumberId);
@@ -759,7 +900,7 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       const reply = await getSmartReply(
         customerPhone, hotel._id, customer._id,
         'How can I contact the hotel directly?',
-        'Customer wants contact information. Share phone number and email warmly.',
+        'Customer wants contact info. Share phone number and email warmly.',
         detectPreferredLanguage(userMessage)
       );
       await sendText(customerPhone, reply, phoneNumberId);
@@ -776,7 +917,7 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       const reply = await getSmartReply(
         customerPhone, hotel._id, customer._id,
         `I'd like to book the ${roomChoice}`,
-        `Customer selected ${roomChoice} from the room menu. Start the booking flow — ask for their full name next. Do NOT ask about room type again.`
+        `Customer selected ${roomChoice}. Start the booking flow — ask for their full name next. Do NOT ask about room type again.`
       );
       await sendText(customerPhone, reply, phoneNumberId);
       return;
@@ -786,16 +927,16 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       const reply = await getSmartReply(
         customerPhone, hotel._id, customer._id,
         'I have a question about the hotel',
-        'Customer clicked Ask a Question. Warmly invite them to ask anything — rooms, pricing, amenities, policies, booking.',
+        'Customer clicked Ask a Question. Warmly invite them to ask anything.',
         detectPreferredLanguage(userMessage)
       );
       await sendText(customerPhone, reply, phoneNumberId);
       return;
     }
 
-    // ══════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════
     // HANDLER 4: TEXT SHORTCUTS
-    // ══════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════
 
     if (/\b(show.*rooms?|rooms?.*photo|see.*rooms?|view.*rooms?|photos?|pictures?|images?)\b/i.test(userMessage)) {
       await saveMessage(customerPhone, hotel._id, customer._id, 'user', userMessage);
@@ -805,25 +946,27 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
     }
 
     if (/\b(pay|payment|qr|upi|gpay|phonepe|paytm|how.*pay|online.*pay)\b/i.test(userMessage)) {
+      const booking = await Booking.findOne({ phone: customerPhone, status: 'pending' }).sort({ createdAt: -1 });
       await saveMessage(customerPhone, hotel._id, customer._id, 'user', userMessage);
-      await sendPaymentQR(customerPhone, phoneNumberId);
-      await sendText(customerPhone, '📲 Scan the QR above to pay!\n\nOnce done, just reply *paid* and your booking is confirmed! ✅', phoneNumberId);
-      await saveMessage(customerPhone, hotel._id, customer._id, 'assistant', '[Sent: Payment QR]');
+      await sendPaymentQR(customerPhone, phoneNumberId, booking?.totalAmount);
+      const instructions = `📲 Scan the QR above and pay ₹${booking?.totalAmount?.toLocaleString() || ''} to *${PAYMENT_RECEIVER_NAME}*\n\nOnce done, please *send a screenshot* of the successful payment so I can verify and confirm your booking instantly! 📸`;
+      await sendText(customerPhone, instructions, phoneNumberId);
+      await saveMessage(customerPhone, hotel._id, customer._id, 'assistant', '[Sent: Payment QR + instructions]');
       return;
     }
 
-    // ══════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════
     // HANDLER 5: ALL OTHER MESSAGES → Smart AI
-    // ══════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════
     const reply = await getSmartReply(customerPhone, hotel._id, customer._id, userMessage);
     await sendText(customerPhone, reply, phoneNumberId);
 
-    // Auto-save booking in background if all details collected
+    // Auto-save booking in background
     getHistory(customerPhone, hotel._id).then(hist => {
       tryExtractAndSaveBooking(customerPhone, hotel._id, customer._id, hist);
     }).catch(() => {});
 
-    // If booking summary shown → send payment QR after 2 seconds
+    // If booking summary shown → send payment QR
     const lowerReply      = reply.toLowerCase();
     const bookingComplete =
       lowerReply.includes('booking summary') ||
@@ -831,11 +974,12 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       (lowerReply.includes('confirm') && lowerReply.includes('₹'));
 
     if (bookingComplete) {
+      const booking = await Booking.findOne({ phone: customerPhone, status: 'pending' }).sort({ createdAt: -1 });
       setTimeout(async () => {
-        await sendPaymentQR(customerPhone, phoneNumberId);
+        await sendPaymentQR(customerPhone, phoneNumberId, booking?.totalAmount);
         await sendText(
           customerPhone,
-          '💳 *Scan the QR above to complete your payment!*\n\nOnce done, reply *paid* and your booking will be confirmed instantly! ✅',
+          `💳 *Scan the QR above and pay ₹${booking?.totalAmount?.toLocaleString() || ''} to ${PAYMENT_RECEIVER_NAME}*\n\nOnce done, send a *screenshot* of the successful payment and I'll confirm your booking instantly! 📸`,
           phoneNumberId
         );
       }, 2000);
