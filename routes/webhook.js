@@ -314,27 +314,31 @@ async function saveMessage(phone, hotelId, customerId, role, content) {
   try {
     const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     
-    let chat = await Chat.findOne({ phone, hotelId });
-    
-    if (!chat) {
-      chat = new Chat({
-        phone,
-        hotelId,
-        customerId,
-        name: 'Guest ' + phone.slice(-4),
-        avatar: 'G',
-        messages: [],
-        unread: 0
-      });
-    }
+    await Chat.updateOne(
+      { phone, hotelId },
+      {
+        $setOnInsert: {
+          phone,
+          hotelId,
+          customerId,
+          name: 'Guest ' + phone.slice(-4),
+          avatar: 'G',
+          unread: 0
+        },
+        $set: {
+          customerId,
+          lastMessage: content.substring(0, 120),
+          time: 'Just now'
+        },
+        $push: {
+          messages: { role, content, time }
+        },
+        ...(role === 'user' ? { $inc: { unread: 1 } } : {})
+      },
+      { upsert: true }
+    );
 
-    chat.messages.push({ role, content, time });
-    chat.lastMessage = content.substring(0, 120);
-    chat.time = 'Just now';
-    if (role === 'user') chat.unread = (chat.unread || 0) + 1;
-    
-    await chat.save();
-    return chat;
+    return Chat.findOne({ phone, hotelId });
   } catch (err) {
     console.error('❌ saveMessage error:', err.message);
   }
@@ -616,7 +620,7 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
     const isGreeting = /^(hi|hii|hiii|hello|hey|helo|hola|good morning|good evening|good afternoon|namaste|namaskar|start|menu)\b/i.test(userMessage);
     const isMenuRequest = /^(menu|main menu|start|help|options|back to menu)\b/i.test(userMessage);
 
-    if (firstTime || isMenuRequest) {
+    if ((firstTime && isGreeting) || isMenuRequest) {
       await saveMessage(customerPhone, hotel._id, customer._id, 'user', userMessage);
       await sendMainMenu(customerPhone, phoneNumberId);
       await saveMessage(customerPhone, hotel._id, customer._id, 'assistant', '[Sent: Main Menu]');

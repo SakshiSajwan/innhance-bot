@@ -2,16 +2,16 @@ const mongoose = require('mongoose');
 
 // Schema for individual messages
 const messageSchema = new mongoose.Schema({
-  role: { 
-    type: String, 
-    enum: ['user', 'assistant'], 
-    required: true 
+  role: {
+    type: String,
+    enum: ['user', 'assistant'],
+    required: true
   },
-  content: { 
-    type: String, 
-    required: true 
+  content: {
+    type: String,
+    required: true
   },
-  time: { 
+  time: {
     type: String // Stores time like "10:00 AM"
   }
 });
@@ -20,13 +20,17 @@ const messageSchema = new mongoose.Schema({
 const chatSchema = new mongoose.Schema({
   name: { type: String, default: 'New Customer' },
   phone: { type: String, required: true },
+  hotelId: { type: mongoose.Schema.Types.ObjectId, ref: 'Hotel', required: true },
+  customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },
   lastMessage: { type: String, default: '' },
   time: { type: String, default: 'Just now' }, // e.g., "2 min ago" or "10:05 AM"
   unread: { type: Number, default: 0 },
   status: { type: String, enum: ['booked', 'inquiry', 'cancelled'], default: 'inquiry' },
   avatar: { type: String, default: 'U' },
   messages: [messageSchema]
-}, { timestamps: true }); 
-// timestamps: true will automatically add createdAt and updatedAt
+}, { timestamps: true });
+
+// One chat thread per phone per hotel.
+chatSchema.index({ phone: 1, hotelId: 1 }, { unique: true });
 
 module.exports = mongoose.model('Chat', chatSchema);
