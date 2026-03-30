@@ -236,14 +236,12 @@ async function sendList(to, bodyText, sections, phoneNumberId) {
 // ============================================================
 async function fetchWhatsAppMediaAsBase64(mediaId) {
   try {
-    // Step 1: Get the media URL from WhatsApp
     const mediaRes = await axios.get(
       `https://graph.facebook.com/v18.0/${mediaId}`,
       { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
     );
     const mediaUrl = mediaRes.data.url;
 
-    // Step 2: Download the actual image bytes
     const imageRes = await axios.get(mediaUrl, {
       headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
       responseType: 'arraybuffer',
@@ -299,9 +297,8 @@ Rules:
     const raw = response.choices[0].message.content.trim().replace(/```json|```/g, '');
     const data = JSON.parse(raw);
 
-    // Verification checks
     const nameMatch   = data.receiverName?.toLowerCase().includes(PAYMENT_RECEIVER_NAME.toLowerCase());
-    const amountMatch = Math.abs(data.amountPaid - expectedAmount) <= 1; // allow ₹1 rounding tolerance
+    const amountMatch = Math.abs(data.amountPaid - expectedAmount) <= 1;
     const isSuccess   = data.isSuccessful === true;
 
     return {
@@ -467,10 +464,10 @@ function looksLikeQuestion(text = '') {
 // ============================================================
 function validateCapacity(roomType, numberOfGuests, numberOfRooms, adultsCount, childrenCount) {
   const capacity = ROOM_CAPACITY[roomType];
-  if (!capacity) return { valid: true }; // unknown room type, skip check
+  if (!capacity) return { valid: true };
 
   const rooms      = numberOfRooms || 1;
-  const adults     = adultsCount   || numberOfGuests; // fallback if not split
+  const adults     = adultsCount   || numberOfGuests;
   const totalCap   = capacity.maxTotal  * rooms;
   const adultCap   = capacity.maxAdults * rooms;
 
@@ -594,7 +591,6 @@ ${history.map(m => `${m.role}: ${m.content}`).join('\n')}`;
     const details = JSON.parse(raw);
     if (!details.guestName || !details.checkIn || !details.checkOut || !details.roomType) return null;
 
-    // Capacity check before saving
     const capacityCheck = validateCapacity(
       details.roomType,
       details.numberOfGuests,
@@ -703,7 +699,6 @@ router.post('/', async (req, res) => {
 
     // ══════════════════════════════════════════════════════
     // HANDLER: PAYMENT SCREENSHOT (image message)
-    // Customer sends a photo — we verify it with GPT-4o vision
     // ══════════════════════════════════════════════════════
     if (message.type === 'image') {
       const mediaId = message.image?.id;
@@ -712,8 +707,15 @@ router.post('/', async (req, res) => {
         return;
       }
 
-      // Find the pending booking for this customer
-      const booking = await Booking.findOne({ phone: customerPhone, status: 'pending' }).sort({ createdAt: -1 });
+      // FIXED: Search using both phone AND hotelId
+      const booking = await Booking.findOne({ 
+        phone: customerPhone, 
+        hotelId: hotel._id, 
+        status: 'pending' 
+      }).sort({ createdAt: -1 });
+
+      console.log(`📸 Image received from ${customerPhone}. Pending booking found: ${!!booking}`);
+
       if (!booking) {
         await sendText(
           customerPhone,
@@ -741,7 +743,6 @@ router.post('/', async (req, res) => {
       console.log('💳 Payment verification result:', JSON.stringify(result));
 
       if (result.verified) {
-        // ✅ Payment verified — confirm the booking
         booking.status = 'confirmed';
         await booking.save();
 
@@ -772,7 +773,6 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
         await sendText(customerPhone, confirmMsg, phoneNumberId);
 
       } else {
-        // ❌ Payment not verified — tell customer exactly what failed
         let failReason = '';
 
         if (!result.isSuccess) {
@@ -823,7 +823,6 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
 
     // ══════════════════════════════════════════════════════
     // HANDLER 1: LEGACY TEXT "paid" — redirect to screenshot
-    // ══════════════════════════════════════════════════════
     if (/^(paid|payment done|payment complete|pay kar diya|pay ho gaya)/i.test(userMessage)) {
       const booking = await Booking.findOne({ phone: customerPhone, status: 'pending' }).sort({ createdAt: -1 });
       if (booking) {
@@ -844,7 +843,6 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
 
     // ══════════════════════════════════════════════════════
     // HANDLER 2: FIRST MESSAGE / GREETING → Show menu
-    // ══════════════════════════════════════════════════════
     const firstTime     = await isFirstMessage(customerPhone, hotel._id);
     const isGreeting    = /^(hi|hii|hiii|hello|hey|helo|hola|good morning|good evening|good afternoon|namaste|namaskar|start|menu)\b/i.test(userMessage);
     const isMenuRequest = /^(menu|main menu|start|help|options|back to menu)\b/i.test(userMessage);
@@ -858,8 +856,6 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
 
     // ══════════════════════════════════════════════════════
     // HANDLER 3: INTERACTIVE MENU SELECTIONS
-    // ══════════════════════════════════════════════════════
-
     if (interactiveId === 'menu_rooms') {
       await saveMessage(customerPhone, hotel._id, customer._id, 'user', 'I want to see the rooms');
       await sendRoomPhotos(customerPhone, phoneNumberId);
@@ -936,8 +932,6 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
 
     // ══════════════════════════════════════════════════════
     // HANDLER 4: TEXT SHORTCUTS
-    // ══════════════════════════════════════════════════════
-
     if (/\b(show.*rooms?|rooms?.*photo|see.*rooms?|view.*rooms?|photos?|pictures?|images?)\b/i.test(userMessage)) {
       await saveMessage(customerPhone, hotel._id, customer._id, 'user', userMessage);
       await sendRoomPhotos(customerPhone, phoneNumberId);
@@ -957,7 +951,6 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
 
     // ══════════════════════════════════════════════════════
     // HANDLER 5: ALL OTHER MESSAGES → Smart AI
-    // ══════════════════════════════════════════════════════
     const reply = await getSmartReply(customerPhone, hotel._id, customer._id, userMessage);
     await sendText(customerPhone, reply, phoneNumberId);
 
@@ -974,15 +967,23 @@ _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
       (lowerReply.includes('confirm') && lowerReply.includes('₹'));
 
     if (bookingComplete) {
-      const booking = await Booking.findOne({ phone: customerPhone, status: 'pending' }).sort({ createdAt: -1 });
+      // Small delay to let extraction finish
       setTimeout(async () => {
-        await sendPaymentQR(customerPhone, phoneNumberId, booking?.totalAmount);
-        await sendText(
-          customerPhone,
-          `💳 *Scan the QR above and pay ₹${booking?.totalAmount?.toLocaleString() || ''} to ${PAYMENT_RECEIVER_NAME}*\n\nOnce done, send a *screenshot* of the successful payment and I'll confirm your booking instantly! 📸`,
-          phoneNumberId
-        );
-      }, 2000);
+        const booking = await Booking.findOne({ 
+          phone: customerPhone, 
+          hotelId: hotel._id, 
+          status: 'pending' 
+        }).sort({ createdAt: -1 });
+        
+        if (booking) {
+          await sendPaymentQR(customerPhone, phoneNumberId, booking.totalAmount);
+          await sendText(
+            customerPhone,
+            `💳 *Scan the QR above and pay ₹${booking.totalAmount?.toLocaleString() || ''} to ${PAYMENT_RECEIVER_NAME}*\n\nOnce done, send a *screenshot* of the successful payment and I'll confirm your booking instantly! 📸`,
+            phoneNumberId
+          );
+        }
+      }, 2500);
     }
 
   } catch (err) {
