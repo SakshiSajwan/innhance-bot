@@ -800,9 +800,9 @@ router.post('/', async (req, res) => {
       }
 
       const booking = await Booking.findOne({
-        phone:   normalizedPhone,
+        phone:   { $in: [normalizedPhone, customerPhone] },
         hotelId: hotel._id,
-        status:  'pending',
+        status:  { $in: ['pending', 'confirmed'] },
       }).sort({ createdAt: -1 });
 
       if (!booking) {
@@ -1048,9 +1048,9 @@ _Ref: ${payment?.transactionNote || ''}_`;
 
       // Step 1: Look for existing pending booking in DB
       let booking = await Booking.findOne({
-        phone:   normalizedPhone,
+        phone:   { $in: [normalizedPhone, customerPhone] },
         hotelId: hotel._id,
-        status:  'pending',
+        status:  { $in: ['pending', 'confirmed'] },
       }).sort({ createdAt: -1 });
 
       // Step 2: If not found, try extracting from conversation history
