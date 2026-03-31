@@ -183,14 +183,10 @@ function normalizePhone(phone) {
 // HELPER: Build UPI deep link
 // ============================================================
 function buildUpiLink(amount, transactionNote) {
-  const params = new URLSearchParams({
-    pa: PLATFORM_UPI_ID,
-    pn: PLATFORM_UPI_NAME,
-    am: amount.toFixed(2),
-    cu: 'INR',
-    tn: transactionNote,
-  });
-  return `upi://pay?${params.toString()}`;
+  const pa = encodeURIComponent(PLATFORM_UPI_ID);
+  const pn = encodeURIComponent(PLATFORM_UPI_NAME);
+  const tn = encodeURIComponent(transactionNote);
+  return `upi://pay?pa=${pa}&pn=${pn}&am=${amount.toFixed(2)}&cu=INR&tn=${tn}&mc=0000`;
 }
 
 function buildTransactionNote(hotelCode, bookingRef) {
@@ -306,9 +302,7 @@ async function sendPaymentQR(to, phoneNumberId, booking, hotel) {
       to,
       qrUrl,
       `💳 *Pay ₹${booking.totalAmount.toLocaleString()} to complete your booking*\n\n` +
-      `👤 Pay to: *${PLATFORM_UPI_NAME}*\n` +
-      `🔖 Note: *${transactionNote}*\n\n` +
-      `Scan with GPay / PhonePe / Paytm / any UPI app 📱\n\n` +
+      `📱 Scan with GPay / PhonePe / Paytm / any UPI app\n\n` +
       `📸 After paying, please *send a screenshot* of the successful payment!`,
       phoneNumberId
     );
