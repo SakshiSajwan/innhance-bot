@@ -25,13 +25,14 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ===== ROUTES =====
-app.use('/rooms', roomsRoute);
-app.use('/booking', bookingRoutes);
-app.use('/auth', require('./routes/auth'));
-app.use('/dashboard', require('./routes/dashboard'));
-app.use('/webhook', require('./routes/webhook'));
-app.use('/api/chats', require('./routes/chatRoutes'));
+app.use('/rooms',         roomsRoute);
+app.use('/booking',       bookingRoutes);
+app.use('/auth',          require('./routes/auth'));
+app.use('/dashboard',     require('./routes/dashboard'));
+app.use('/webhook',       require('./routes/webhook'));
+app.use('/api/chats',     require('./routes/chatRoutes'));
 app.use('/api/analytics', require('./routes/analytics'));
+app.use('/api/payments',  require('./routes/payment'));   // ← NEW: UPI payment system
 
 // ===== PROTECTED ROUTE =====
 app.get('/api/protected', verifyToken, (req, res) => {
