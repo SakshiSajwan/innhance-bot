@@ -181,8 +181,6 @@ function normalizePhone(phone) {
 
 // ============================================================
 // HELPER: Build UPI deep link
-// The transaction note encodes hotel + booking so you always
-// know which hotel a payment belongs to in your UPI app.
 // ============================================================
 function buildUpiLink(amount, transactionNote) {
   const params = new URLSearchParams({
@@ -264,9 +262,6 @@ async function sendList(to, bodyText, sections, phoneNumberId) {
 
 // ============================================================
 // DYNAMIC UPI QR GENERATOR
-// Generates a unique QR per booking with hotel code + amount.
-// Uploads to imgbb (free) so WhatsApp can display it as image.
-// Falls back to text UPI details if imgbb fails.
 // ============================================================
 async function sendPaymentQR(to, phoneNumberId, booking, hotel) {
   try {
@@ -872,7 +867,7 @@ _Ref: ${payment?.transactionNote || ''}_`;
         await sendText(customerPhone, confirmMsg, phoneNumberId);
 
       } else {
-        // ❌ Payment not verified — explain exactly what failed
+        // ❌ Payment not verified
         let failReason = '';
         if (!result.isSuccess) {
           failReason = "The screenshot doesn't show a successful payment. Please make sure the payment went through and send the success confirmation screenshot. 🙏";
@@ -1042,20 +1037,40 @@ _Ref: ${payment?.transactionNote || ''}_`;
       return;
     }
 
-    if (/\b(pay|payment|qr|upi|gpay|phonepe|paytm|how.*pay|online.*pay)\b/i.test(userMessage)) {
-      const booking = await Booking.findOne({ phone: normalizedPhone, hotelId: hotel._id, status: 'pending' }).sort({ createdAt: -1 });
+    // ══════════════════════════════════════════════════════════
+    // HANDLER 5: Payment / QR request — FIXED
+    // Looks up existing pending booking first,
+    // then tries to extract from conversation,
+    // only gives up if truly no booking exists.
+    // ══════════════════════════════════════════════════════════
+    if (/\b(pay|payment|qr|upi|gpay|phonepe|paytm|how.*pay|online.*pay|where.*qr|send.*qr|qr.*send|qr.*bhejo|payment.*karo|pay.*karna)\b/i.test(userMessage)) {
       await saveMessage(customerPhone, hotel._id, customer._id, 'user', userMessage);
+
+      // Step 1: Look for existing pending booking in DB
+      let booking = await Booking.findOne({
+        phone:   normalizedPhone,
+        hotelId: hotel._id,
+        status:  'pending',
+      }).sort({ createdAt: -1 });
+
+      // Step 2: If not found, try extracting from conversation history
+      if (!booking) {
+        const history = await getHistory(customerPhone, hotel._id);
+        booking = await tryExtractAndSaveBooking(normalizedPhone, hotel._id, customer._id, history);
+      }
+
+      // Step 3: Send QR or ask to complete booking
       if (booking) {
         await sendPaymentQR(customerPhone, phoneNumberId, booking, hotel);
+        await saveMessage(customerPhone, hotel._id, customer._id, 'assistant', '[Sent: Payment QR]');
       } else {
         await sendText(customerPhone, "Please complete your booking first and then I'll send you the payment QR! 😊", phoneNumberId);
       }
-      await saveMessage(customerPhone, hotel._id, customer._id, 'assistant', '[Sent: Payment QR]');
       return;
     }
 
     // ══════════════════════════════════════════════════════════
-    // HANDLER 5: All other messages → Smart AI
+    // HANDLER 6: All other messages → Smart AI
     // ══════════════════════════════════════════════════════════
     const reply = await getSmartReply(customerPhone, hotel._id, customer._id, userMessage);
     await sendText(customerPhone, reply, phoneNumberId);
@@ -1064,11 +1079,13 @@ _Ref: ${payment?.transactionNote || ''}_`;
     const history = await getHistory(customerPhone, hotel._id);
     const booking = await tryExtractAndSaveBooking(normalizedPhone, hotel._id, customer._id, history);
 
-    // If booking summary was shown → send payment QR
+    // If booking summary was shown → send payment QR automatically
     const lowerReply      = reply.toLowerCase();
     const bookingComplete =
       lowerReply.includes('booking summary') ||
+      lowerReply.includes('total cost')      ||
       lowerReply.includes('total:')          ||
+      lowerReply.includes('total amount')    ||
       (lowerReply.includes('confirm') && lowerReply.includes('₹'));
 
     if (bookingComplete && booking) {
