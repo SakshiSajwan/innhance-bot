@@ -75,6 +75,34 @@ router.get("/all", async (req, res) => {
   }
 });
 
+// ===== CANCEL PAY AT DESK BOOKING =====
+router.patch("/cancel-pay-at-desk/:id", async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+
+    // Database mein booking find karo aur status update karo
+    const updatedBooking = await Booking.findByIdAndUpdate(
+      bookingId,
+      { status: "cancelled" }, 
+      { new: true } // Ye naya updated document return karega
+    );
+
+    if (!updatedBooking) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
+    console.log("Cancelled Booking:", updatedBooking._id);
+    
+    return res.json({ 
+        message: "Pay at desk booking cancelled successfully", 
+        booking: updatedBooking 
+    });
+
+  } catch (err) {
+    console.error("Cancellation error:", err.message);
+    return res.status(500).json({ error: "Cancellation failed" });
+  }
+});
 
 // ✅ EXPORT
 module.exports = router;

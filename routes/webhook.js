@@ -29,7 +29,6 @@ const roomImages = {
 
 // ============================================================
 // ROOM CAPACITY RULES
-// Adults = 13+, Children = under 12 (stay FREE)
 // ============================================================
 const ROOM_CAPACITY = {
   'Standard Room': { maxAdults: 2, maxTotal: 3 },
@@ -47,6 +46,13 @@ VERY IMPORTANT — WHO YOU ARE:
 - You NEVER write from the customer's perspective
 - You NEVER say things like "I want to book a room" or "I am a guest"
 - You always reply AS Inna TO the customer
+
+═══════════════════════════════════
+PAYMENT AND CANCELLATION RULES (STRICTLY FOLLOW THESE):
+1. If the customer chooses "Pay at Desk": Confirm their booking and tell them "Okay, your booking is confirmed. You can pay at the hotel desk upon arrival."
+2. If the customer chooses "Pay by QR" or "Online": Tell them you will provide the payment QR right away.
+3. If the customer asks to "Cancel" their booking: DO NOT cancel it automatically. Politely apologize and tell them: "To cancel your booking, please contact the hotel directly at  93197 80058."
+═══════════════════════════════════
 
 ═══════════════════════════════════
 HOTEL INFORMATION
@@ -97,10 +103,11 @@ Contact:
 - Email: info@innhance.com
 - Front desk: 24/7
 
-Payment:
-- Online: UPI/QR code (we send the QR, customer scans and pays)
-- At hotel: Cash, Credit/Debit cards
-- After paying online, customer must send a SCREENSHOT of the payment for verification
+Payment Methods:
+- Online: UPI/QR code
+- At hotel: Pay at Desk (Cash, Credit/Debit cards)
+- Always ask the customer if they prefer "Pay at Desk" or "Pay via QR" before finalizing.
+- After paying online, customer must send a SCREENSHOT of the payment for verification.
 
 ═══════════════════════════════════
 BOOKING FLOW
@@ -116,10 +123,9 @@ When a customer wants to book, collect these ONE BY ONE naturally:
 CAPACITY CHECK (do this before showing the summary):
 - If the number of adults exceeds the room's adult limit, DO NOT just silently accept it
 - Politely explain the capacity limit and suggest: upgrade to a bigger room OR book an additional room
-- Example: "Our Deluxe Room fits up to 3 adults. For 4 adults I'd suggest either our Suite or booking 2 Deluxe rooms — which works better for you? 😊"
 
-Once all details are confirmed AND capacity is valid, show a beautiful booking summary and ask for confirmation.
-After confirmation, tell them a payment QR will be sent and they must send a SCREENSHOT after paying.
+Once all details are confirmed AND capacity is valid, ask their payment preference (At Desk or QR). 
+Then show a beautiful booking summary and confirm everything.
 
 ═══════════════════════════════════
 HOW TO HANDLE QUESTIONS
@@ -160,15 +166,7 @@ LANGUAGE RULES:
 - If customer writes in Hindi — reply in Hindi
 - If customer writes in Hinglish — reply in Hinglish
 - For all Indian languages you can use Roman script if customer is using that
-- NEVER switch languages mid-conversation unless customer switches first
-
-NEVER DO:
-- NEVER write as the customer — you are ALWAYS the hotel assistant
-- Never ask for a detail you already have
-- Never greet again mid-conversation
-- Never say "I'm just an AI" or "I don't have access to"
-- Never make up prices or policies not listed above
-- Never send the same message twice`;
+- NEVER switch languages mid-conversation unless customer switches first`;
 
 // ============================================================
 // HELPER: Normalize phone number (strips country code)
@@ -443,7 +441,7 @@ async function sendRoomMenu(to, phoneNumberId) {
       rows: [
         { id: 'room_standard', title: '🛏️ Standard Room', description: '₹2,500/night — max 2 adults' },
         { id: 'room_deluxe',   title: '✨ Deluxe Room',   description: '₹4,000/night — max 3 adults' },
-        { id: 'room_suite',    title: '👑 Suite',          description: '₹7,500/night — max 4 adults' },
+        { id: 'room_suite',    title: '👑 Suite',         description: '₹7,500/night — max 4 adults' },
       ],
     }],
     phoneNumberId
@@ -1032,10 +1030,7 @@ _Ref: ${payment?.transactionNote || ''}_`;
     }
 
     // ══════════════════════════════════════════════════════════
-    // HANDLER 5: Payment / QR request — FIXED
-    // Looks up existing pending booking first,
-    // then tries to extract from conversation,
-    // only gives up if truly no booking exists.
+    // HANDLER 5: Payment / QR request
     // ══════════════════════════════════════════════════════════
     if (/\b(pay|payment|qr|upi|gpay|phonepe|paytm|how.*pay|online.*pay|where.*qr|send.*qr|qr.*send|qr.*bhejo|payment.*karo|pay.*karna)\b/i.test(userMessage)) {
       await saveMessage(customerPhone, hotel._id, customer._id, 'user', userMessage);
@@ -1073,8 +1068,9 @@ _Ref: ${payment?.transactionNote || ''}_`;
     const history = await getHistory(customerPhone, hotel._id);
     const booking = await tryExtractAndSaveBooking(normalizedPhone, hotel._id, customer._id, history);
 
-    // If booking summary was shown → send payment QR automatically
+    // If booking summary was shown → check if they want to pay at desk
     const lowerReply      = reply.toLowerCase();
+    const isPayAtDesk     = lowerReply.includes('pay at desk') || lowerReply.includes('upon arrival') || lowerReply.includes('at the hotel desk');
     const bookingComplete =
       lowerReply.includes('booking summary') ||
       lowerReply.includes('total cost')      ||
@@ -1082,7 +1078,8 @@ _Ref: ${payment?.transactionNote || ''}_`;
       lowerReply.includes('total amount')    ||
       (lowerReply.includes('confirm') && lowerReply.includes('₹'));
 
-    if (bookingComplete && booking) {
+    // ✨ BUG FIX: Only send the QR code if they DID NOT choose "Pay at desk"
+    if (bookingComplete && booking && !isPayAtDesk) {
       setTimeout(async () => {
         await sendPaymentQR(customerPhone, phoneNumberId, booking, hotel);
       }, 2000);
