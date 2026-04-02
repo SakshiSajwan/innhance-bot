@@ -930,6 +930,60 @@ _Ref: ${payment?.transactionNote || ''}_`;
     }
 
     // ══════════════════════════════════════════════════════════
+    // HANDLER 1.5: Pay at desk — confirm booking without QR
+    // ══════════════════════════════════════════════════════════
+    if (/\b(pay at desk|pay at hotel|pay on arrival|cash at hotel|desk pay|paying at desk|will pay at desk|pay when i arrive|pay there|at desk|at the desk)\b/i.test(userMessage)) {
+      await saveMessage(customerPhone, hotel._id, customer._id, 'user', userMessage);
+
+      const booking = await Booking.findOne({
+        phone:   { $in: [normalizedPhone, customerPhone] },
+        hotelId: hotel._id,
+        status:  { $in: ['pending', 'confirmed'] },
+      }).sort({ createdAt: -1 });
+
+      if (booking) {
+        booking.status = 'confirmed';
+        await booking.save();
+
+        await Chat.findOneAndUpdate(
+          { phone: customerPhone, hotelId: hotel._id },
+          { status: 'booked' }
+        );
+
+        const nights = Math.ceil(
+          (new Date(booking.checkOut) - new Date(booking.checkIn)) / (1000 * 60 * 60 * 24)
+        );
+
+        const confirmMsg =
+    `✅ *Booking Confirmed — Pay at Desk!*
+
+    👤 *Name:* ${booking.guestName}
+    🛏️ *Room:* ${booking.roomType}
+    📅 *Check-in:* ${new Date(booking.checkIn).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+    📅 *Check-out:* ${new Date(booking.checkOut).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+    🌙 *Nights:* ${nights}
+    👥 *Guests:* ${booking.numberOfGuests}
+    💰 *Amount Due:* ₹${booking.totalAmount?.toLocaleString()} _(payable at hotel)_
+
+    Thank you for choosing *${hotel.name}!* 🏨
+    Please carry a valid ID at check-in. See you soon! 😊
+
+    _Booking ID: #${booking._id.toString().slice(-6).toUpperCase()}_`;
+
+        await saveMessage(customerPhone, hotel._id, customer._id, 'assistant', confirmMsg);
+        await sendText(customerPhone, confirmMsg, phoneNumberId);
+      } else {
+        const reply = await getSmartReply(
+          customerPhone, hotel._id, customer._id, userMessage,
+          'Customer wants to pay at desk. No pending booking found. Ask them to complete booking first.',
+          detectPreferredLanguage(userMessage)
+        );
+        await sendText(customerPhone, reply, phoneNumberId);
+      }
+      return;
+    }
+
+    // ══════════════════════════════════════════════════════════
     // HANDLER 2: First message / Greeting → Show menu
     // ══════════════════════════════════════════════════════════
     const firstTime     = await isFirstMessage(customerPhone, hotel._id);
