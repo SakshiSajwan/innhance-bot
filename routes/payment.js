@@ -14,9 +14,6 @@ const PLATFORM_UPI_NAME = process.env.PLATFORM_UPI_NAME || 'Arnav Prabhakar';
 // ================================================================
 // HELPER: Build UPI deep link
 // Format: upi://pay?pa=UPI_ID&pn=NAME&am=AMOUNT&cu=INR&tn=NOTE
-//
-// The transaction note (tn) encodes hotel + booking so you always
-// know which hotel a payment belongs to when it lands in your UPI.
 // ================================================================
 function buildUpiLink({ upiId, upiName, amount, transactionNote }) {
   const params = new URLSearchParams({
@@ -32,7 +29,6 @@ function buildUpiLink({ upiId, upiName, amount, transactionNote }) {
 // ================================================================
 // HELPER: Generate transaction note
 // Format: HOTEL-{SHORT_CODE}-BOOK-{BOOKING_REF}
-// Example: HOTEL-INN001-BOOK-15DAB3
 // ================================================================
 function buildTransactionNote(hotelCode, bookingRef) {
   return `HOTEL-${hotelCode}-BOOK-${bookingRef}`;
@@ -40,11 +36,6 @@ function buildTransactionNote(hotelCode, bookingRef) {
 
 // ================================================================
 // POST /api/payments/generate-qr
-// Called by your webhook after booking summary is confirmed.
-// Generates a UPI QR with the exact booking amount + hotel code.
-//
-// Body: { bookingId, hotelId }
-// Returns: { qrDataUrl, upiLink, transactionNote, amount }
 // ================================================================
 router.post('/generate-qr', async (req, res) => {
   try {
@@ -59,7 +50,6 @@ router.post('/generate-qr', async (req, res) => {
     if (!hotel)   return res.status(404).json({ error: 'Hotel not found'   });
 
     const bookingRef      = booking._id.toString().slice(-6).toUpperCase();
-    // Use hotel's short code — fallback to first 6 chars of hotel ID
     const hotelCode       = hotel.shortCode || hotel._id.toString().slice(-6).toUpperCase();
     const transactionNote = buildTransactionNote(hotelCode, bookingRef);
 
@@ -70,14 +60,12 @@ router.post('/generate-qr', async (req, res) => {
       transactionNote,
     });
 
-    // Generate QR as base64 data URL (ready to embed in WhatsApp image or webpage)
     const qrDataUrl = await QRCode.toDataURL(upiLink, {
       width:           400,
       margin:          2,
       color: { dark: '#000000', light: '#FFFFFF' },
     });
 
-    // Create a Payment record in "pending" state
     await Payment.findOneAndUpdate(
       { bookingId: booking._id },
       {
@@ -96,8 +84,8 @@ router.post('/generate-qr', async (req, res) => {
 
     res.json({
       success: true,
-      qrDataUrl,      // base64 PNG — use this to send via WhatsApp
-      upiLink,        // raw UPI deep link
+      qrDataUrl,
+      upiLink,
       transactionNote,
       amount:          booking.totalAmount,
       bookingRef,
@@ -111,10 +99,6 @@ router.post('/generate-qr', async (req, res) => {
 
 // ================================================================
 // POST /api/payments/verify-screenshot
-// Called after GPT-4o OCR verifies a payment screenshot.
-// Updates the Payment record with extracted data.
-//
-// Body: { bookingId, transactionId, paidAt, amountPaid, verified }
 // ================================================================
 router.post('/verify-screenshot', async (req, res) => {
   try {
@@ -138,8 +122,6 @@ router.post('/verify-screenshot', async (req, res) => {
 
 // ================================================================
 // GET /api/payments/dashboard
-// Returns payment summary for all hotels — used in your admin UI.
-// Query params: ?status=verified&from=2024-01-01&to=2024-12-31
 // ================================================================
 router.get('/dashboard', async (req, res) => {
   try {
@@ -154,18 +136,17 @@ router.get('/dashboard', async (req, res) => {
       if (to)   filter.createdAt.$lte = new Date(to);
     }
 
-    // Per-hotel aggregation
     const hotelSummary = await Payment.aggregate([
       { $match: filter },
       {
         $group: {
-          _id:          '$hotelId',
-          hotelName:    { $first: '$hotelName' },
+          _id:            '$hotelId',
+          hotelName:      { $first: '$hotelName' },
           totalPayments: { $sum: 1 },
-          totalAmount:  { $sum: '$amount' },
-          verified:     { $sum: { $cond: [{ $eq: ['$status', 'verified'] }, 1, 0] } },
-          settled:      { $sum: { $cond: [{ $eq: ['$status', 'settled'] }, 1, 0] } },
-          pending:      { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
+          totalAmount:   { $sum: '$amount' },
+          verified:      { $sum: { $cond: [{ $eq: ['$status', 'verified'] }, 1, 0] } },
+          settled:       { $sum: { $cond: [{ $eq: ['$status', 'settled'] }, 1, 0] } },
+          pending:       { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
           pendingAmount: {
             $sum: {
               $cond: [{ $in: ['$status', ['verified', 'pending']] }, '$amount', 0],
@@ -176,7 +157,6 @@ router.get('/dashboard', async (req, res) => {
       { $sort: { totalAmount: -1 } },
     ]);
 
-    // Overall totals
     const totals = await Payment.aggregate([
       { $match: filter },
       {
@@ -193,7 +173,6 @@ router.get('/dashboard', async (req, res) => {
       },
     ]);
 
-    // Recent payments list
     const recent = await Payment.find(filter)
       .sort({ createdAt: -1 })
       .limit(50)
@@ -214,8 +193,6 @@ router.get('/dashboard', async (req, res) => {
 
 // ================================================================
 // PATCH /api/payments/:paymentId/settle
-// Mark a payment as settled (you've manually transferred to hotel).
-// Body: { note }  e.g. "Transferred ₹8000 via NEFT on 5 Nov"
 // ================================================================
 router.patch('/:paymentId/settle', async (req, res) => {
   try {
@@ -236,7 +213,6 @@ router.patch('/:paymentId/settle', async (req, res) => {
 
 // ================================================================
 // GET /api/payments/hotel/:hotelId
-// All payments for a specific hotel (for hotel-owner view)
 // ================================================================
 router.get('/hotel/:hotelId', async (req, res) => {
   try {
@@ -267,11 +243,10 @@ router.get('/hotel/:hotelId', async (req, res) => {
   }
 });
 
-// ================================================================
-// HELPER EXPORTS — used by webhook.js to generate QR inline
-// ================================================================
+// Attach helper functions to the router safely
+router.buildUpiLink         = buildUpiLink;
+router.buildTransactionNote = buildTransactionNote;
+router.PLATFORM_UPI_ID      = PLATFORM_UPI_ID;
+router.PLATFORM_UPI_NAME    = PLATFORM_UPI_NAME;
+
 module.exports = router;
-module.exports.buildUpiLink        = buildUpiLink;
-module.exports.buildTransactionNote = buildTransactionNote;
-module.exports.PLATFORM_UPI_ID     = PLATFORM_UPI_ID;
-module.exports.PLATFORM_UPI_NAME   = PLATFORM_UPI_NAME;
