@@ -34,6 +34,29 @@ app.use('/api/chats',     require('./routes/chatRoutes'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/payments',  require('./routes/payment'));   // ← NEW: UPI payment system
 
+// TEMPORARY — remove after onboarding
+app.post('/admin/add-hotel', async (req, res) => {
+  try {
+    const bcrypt = require('bcryptjs');
+    const Hotel  = require('./models/Hotel');
+    const hashedPassword = await bcrypt.hash(req.body.password, 10);
+    const hotel = await Hotel.create({
+      hotelName:             req.body.hotelName,
+      email:                 req.body.email,
+      password:              hashedPassword,
+      phone:                 req.body.phone,
+      city:                  req.body.city,
+      whatsappPhoneNumberId: req.body.whatsappPhoneNumberId,
+      whatsappToken:         req.body.whatsappToken,
+      isActive:              true,
+      plan:                  req.body.plan || 'Pro',
+    });
+    res.json({ success: true, hotelId: hotel._id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===== PROTECTED ROUTE =====
 app.get('/api/protected', verifyToken, (req, res) => {
   res.json({ message: 'Protected data accessed', user: req.user });
