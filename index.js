@@ -112,6 +112,24 @@ app.post('/admin/update-token', async (req, res) => {
   }
 });
 
+app.post('/admin/update-hotel-rooms', async (req, res) => {
+  try {
+    const Hotel = require('./models/Hotel');
+    const { whatsappPhoneNumberId, rooms } = req.body;
+
+    const hotel = await Hotel.findOneAndUpdate(
+      { whatsappPhoneNumberId },
+      { rooms },
+      { new: true }
+    );
+
+    if (!hotel) return res.status(404).json({ error: 'Hotel not found' });
+    res.json({ success: true, message: `✅ Rooms updated for ${hotel.name}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===== PROTECTED ROUTE =====
 app.get('/api/protected', verifyToken, (req, res) => {
   res.json({ message: 'Protected data accessed', user: req.user });
