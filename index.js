@@ -1,23 +1,23 @@
 require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const mongoose = require('mongoose');
-const verifyToken = require('./middleware/authMiddleware');
-const bookingRoutes = require('./routes/booking');
-const roomsRoute = require('./routes/rooms');
+const express   = require('express');
+const cors      = require('cors');
+const mongoose  = require('mongoose');
+const verifyToken    = require('./middleware/authMiddleware');
+const bookingRoutes  = require('./routes/booking');
+const roomsRoute     = require('./routes/rooms');
 
 // ===== CONNECT TO MONGODB =====
 mongoose.connect(process.env.MONGODB_URI)
   .then(async () => {
-    console.log('MongoDB Connected');
+    console.log('✅ MongoDB Connected');
     try {
       await mongoose.connection.syncIndexes();
-      console.log('MongoDB indexes synced');
+      console.log('✅ MongoDB indexes synced');
     } catch (err) {
-      console.log('MongoDB index sync skipped', err.message);
+      console.log('⚠️ MongoDB index sync skipped:', err.message);
     }
   })
-  .catch(err => console.log('MongoDB Error', err));
+  .catch(err => console.log('❌ MongoDB Error:', err));
 
 const app = express();
 app.use(cors());
@@ -32,26 +32,81 @@ app.use('/dashboard',     require('./routes/dashboard'));
 app.use('/webhook',       require('./routes/webhook'));
 app.use('/api/chats',     require('./routes/chatRoutes'));
 app.use('/api/analytics', require('./routes/analytics'));
-app.use('/api/payments',  require('./routes/payment'));   // ← NEW: UPI payment system
+app.use('/api/payments',  require('./routes/payment'));
 
-// TEMPORARY — remove after onboarding
+// ===== ADMIN: ADD HOTEL =====
+// Use this to onboard every new hotel client
 app.post('/admin/add-hotel', async (req, res) => {
   try {
     const bcrypt = require('bcryptjs');
     const Hotel  = require('./models/Hotel');
-    const hashedPassword = await bcrypt.hash(req.body.password, 10);
+
+    const {
+      hotelName,
+      email,
+      password,
+      phone,
+      whatsappPhoneNumberId,
+      whatsappToken,
+      shortCode,
+      plan,
+      systemPrompt,
+    } = req.body;
+
+    if (!hotelName || !email || !password || !whatsappPhoneNumberId || !whatsappToken) {
+      return res.status(400).json({
+        error: 'Missing required fields: hotelName, email, password, whatsappPhoneNumberId, whatsappToken'
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
     const hotel = await Hotel.create({
-      hotelName:             req.body.hotelName,
-      email:                 req.body.email,
+      name:                  hotelName,
+      email,
       password:              hashedPassword,
-      phone:                 req.body.phone,
-      city:                  req.body.city,
-      whatsappPhoneNumberId: req.body.whatsappPhoneNumberId,
-      whatsappToken:         req.body.whatsappToken,
+      whatsappNumber:        phone,
+      whatsappPhoneNumberId,
+      whatsappToken,
+      shortCode:             shortCode || hotelName.slice(0, 3).toUpperCase(),
       isActive:              true,
-      plan:                  req.body.plan || 'Pro',
+      plan:                  plan || 'trial',
+      botConfig: {
+        assistantName: 'Inna',
+        systemPrompt:  systemPrompt || 'You are Inna, a smart hotel booking assistant.',
+      },
     });
-    res.json({ success: true, hotelId: hotel._id });
+
+    res.json({
+      success: true,
+      hotelId: hotel._id,
+      message: `✅ Hotel "${hotelName}" onboarded successfully!`,
+    });
+  } catch (err) {
+    console.error('❌ add-hotel error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== UPDATE HOTEL TOKEN (use when token needs refresh) =====
+app.post('/admin/update-token', async (req, res) => {
+  try {
+    const Hotel = require('./models/Hotel');
+    const { whatsappPhoneNumberId, whatsappToken } = req.body;
+
+    if (!whatsappPhoneNumberId || !whatsappToken) {
+      return res.status(400).json({ error: 'Missing whatsappPhoneNumberId or whatsappToken' });
+    }
+
+    const hotel = await Hotel.findOneAndUpdate(
+      { whatsappPhoneNumberId },
+      { whatsappToken },
+      { new: true }
+    );
+
+    if (!hotel) return res.status(404).json({ error: 'Hotel not found' });
+
+    res.json({ success: true, message: `✅ Token updated for ${hotel.name}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -62,10 +117,10 @@ app.get('/api/protected', verifyToken, (req, res) => {
   res.json({ message: 'Protected data accessed', user: req.user });
 });
 
-app.get('/', (req, res) => res.send('Innhance Bot is running!'));
+app.get('/', (req, res) => res.send('🏨 Innhance Bot is running!'));
 
 // ===== START SERVER =====
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
