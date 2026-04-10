@@ -17,10 +17,11 @@ router.post('/login', async (req, res) => {
     }
 
     // Query the innhance-crm users collection directly
-    const user = await mongoose.connection
-      .useDb('innhance-crm')
-      .collection('users')
-      .findOne({ email: email.toLowerCase().trim() });
+    const Hotel = require('../models/Hotel');
+
+    const user = await Hotel.findOne({
+      email: email.toLowerCase().trim()
+    });
 
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -32,7 +33,11 @@ router.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: user._id, email: user.email, role: user.role, name: user.name },
+      {
+        hotelId: user._id,
+        email: user.email,
+        name: user.name,
+      },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
